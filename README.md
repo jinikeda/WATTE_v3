@@ -54,7 +54,7 @@ See: WATTE_environment.yml \
     * Step 2: *python WATTE_v3.py*
 
 ### § 3. Flowchart
-![Flowchart](https://github.com/jinikeda/WATTE_v2_DEV/blob/main/Photo/Figure1.png "")
+![Flowchart](https://github.com/jinikeda/WATTE_v3/blob/main/Photo/Figure1.png "")
 
 
 ### § 4. Input data
@@ -107,21 +107,21 @@ Here, the user manually determines decay constants from  **Table 1** when the us
 
 ### § 7. Output examples
 #### Baseline delineation ####
-![Baseline](https://github.com/jinikeda/WATTE_v2_DEV/blob/main/Photo/Figure2.png "")
+![Baseline](https://github.com/jinikeda/WATTE_v3/blob/main/Photo/Figure2.png "")
 
 <p style="text-align: left;"><strong>Figure.1</strong> Baseline delineation: three methods in Grand Bay, MS and AL</p>
 
 Grand Bay has a complex marine-dominated embayment system. There is a general consistency between the three baseline definitions; however, there are also local differences. The based on moving-average isopleth overlooks along the western edge of the protruding landform in the center of the image. The method based on a one-way scan doesn’t capture the local embayment in the center of the image due to the northward scanning terminating before reaching the local embayment. The two small islands in the eastern portion of the image are captured by the one-way scan but not the back-barrier shoreline because of the terminating northward scan. The two automated methods cannot fully capture such complex geometry. The user can adjust the input parameters or use a manual definition shoreline (baseline) at that time. 
 
 #### Calculate attenuation over transects ####
-![Transects](https://github.com/jinikeda/WATTE_v2_DEV/blob/main/Photo/Figure3.png "")
+![Transects](https://github.com/jinikeda/WATTE_v3/blob/main/Photo/Figure3.png "")
 
 <p style="text-align: left;"><strong>Figure.2</strong> Example demonstration of attenuation calculation over transect points</p>
 
 After obtaining the baseline, transects normal to baseline extend inshore every 10 m along the baseline. In this case, the baseline is offset to 25 m offshore, as an example. The underlying raster contains five bands: low, medium, and high biomass density, water; and upland. Transect points are assigned k-values (Table 1) based on the underlying raster. The coloration of the transect points corresponds to the calculated wave height transmission, which ranges from one (i.e., full wave height) at the baseline to zero (or near zero) (i.e., fully dissipated wave) over the marsh landscape or at the upland.
 
 #### Map attenuation ####
-![Map](https://github.com/jinikeda/WATTE_v2_DEV/blob/main/Photo/Figure4.png "")
+![Map](https://github.com/jinikeda/WATTE_v3/blob/main/Photo/Figure4.png "")
 
 <p style="text-align: left;"><strong>Figure.3</strong> $W_T$ at the isopleth W/L = 0.25 with a moving average window = 31 cells</p>
 
