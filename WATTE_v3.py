@@ -3,7 +3,7 @@
 # WATTE version 1 was originally developed by M. Foster-Martinez, University of New Orleans: Karim Alizad, University of South Carolina: Scott C. Hagen, LSU (https://digitalcommons.lsu.edu/civil_engineering_data/1/)
 # WATTE version 2 was developed using Python3 and QGIS in 2023
 # Developer: Jin Ikeda, Shu Gao, Christopher E. Kees, and Peter Bacopoulos
-# Last modified 10/14/2023
+# Last modified 03/12/2024
 # Deepest thanks: This software is dedicated to in memory of Dr. Scott C. Hagen. We are truly blessed to have been one of your pupils. We will spread your idea further.
 #
 # WATTE version 3 is an open source-based toolbox using Python 3 (Verified at version Python 3.10).
@@ -20,16 +20,7 @@ print("\n#############################################################\n")
 ### 1.1 Import modules ###
 print("Step 1.1: Import modules")
 
-# import os module
-import os, sys
-import numpy as np
-import pandas as pd
-import csv
-import warnings
-import geopandas as gpd
-from shapely.geometry import LineString
-import glob
-import time
+from WATTE_functions import *
 
 # import spatial analysis using Gdal
 from osgeo import gdal, ogr, osr
@@ -48,7 +39,6 @@ print("\tCurrent working directory: {0}".format(os.getcwd()))
 
 # The target Working directory
 Workspace = os.getcwd()
-# Workspace = "Z:/CCR_data/ACTIVE/Jin_Projects/WATTE/Shu/Model_development/Test8_Grand_Bay_v3_dev/"
 
 # Change the current working directory
 os.chdir(Workspace)
@@ -64,7 +54,7 @@ assert 0 <= Wave_direction < 360, "\tPlease input the values between 0-360 degre
 
 # Input raster data
 Inputspace = os.path.join(Workspace, "Input_data")
-Raster_file = os.path.join(Inputspace, "Grand_Bay_2000.tif")
+Raster_file = os.path.join(Inputspace, "Grand_Bay_2050_IM.tif")
 
 ##################################################################################################################
 # Input baseline delineation method
@@ -76,7 +66,7 @@ Raster_file = os.path.join(Inputspace, "Grand_Bay_2000.tif")
 
 # Here polyline is estimated to draw from left side to right side, which may affect offset direction (use E2W function)
 
-Baseline_delineation_method = 3
+Baseline_delineation_method = 1
 Manual_line = os.path.join(Inputspace, "Polyline.shp")
 assert 1 <= Baseline_delineation_method <= 3, "\tPlease input the values between 1-3 ...{{ (>_<) }}\n"
 ##################################################################################################################
@@ -140,253 +130,6 @@ print("\tInput_list：", Input_list)
 
 # print ('Wave decay stopping point is', Input_Wave_decay)
 print("\tSpacing of points along transect is ", Input_Spacing, "meter")
-
-######################################################################
-# Functions
-######################################################################
-
-# Function of output x, y coordinates
-def getXY(pt):
-    return (pt.x, pt.y)
-
-# Function of reordering East to West direction
-def E2W(gdf):
-
-    point_start = gdf['East'].iloc[0]
-    point_end = gdf['East'].iloc[-1]
-
-    if point_start < point_end:  # The string order is East to West
-        pass
-    else:
-        gdf = gdf.loc[::-1]  # reorder the contents When polyline direction is West to East side
-
-    return gdf
-
-# Function of add East and West coordinate and save as a csv file
-def createEW(in_shp):
-    gdf = gpd.read_file(in_shp)
-    centroidseries = gdf['geometry'].centroid
-    East, North = [list(t) for t in zip(*map(getXY, centroidseries))]
-
-    gdf['East'] = East
-    gdf['North'] = North
-
-    gdf = E2W(gdf)
-    out_csv = in_shp.split(".")[0].split("/")[-1] + '.csv'  # Linux
-    Output_point_csv = os.path.join(Process_folder, out_csv)
-    gdf.to_csv(Output_point_csv)
-
-    return gdf
-
-
-# Function of moving average of points
-def moving_gdf(gdf,moving_value,transiton_points):
-    if moving_value > transiton_points/3:
-        print ("check the size of window and transiton")
-    # Perform the rolling mean on 'East' and 'North' columns
-    gdf[['East', 'North']] = gdf[['East', 'North']].rolling(moving_value,
-                                                            min_periods=int(transiton_points/3),
-                                                            center=True).mean()
-    # Fill NaN values at the beginning and end with original values
-    gdf.loc[:int(transiton_points), ['East', 'North']] = gdf.loc[:int(transiton_points), ['East', 'North']].values
-    gdf.loc[gdf.shape[0] - int(transiton_points):, ['East', 'North']] = gdf.loc[gdf.shape[0] - int(transiton_points):, ['East','North']].values
-
-    out_csv = "Shoreline_Delineation_Points_MA" + str(int(moving_value)) + ".csv."
-    Output_point_csv = os.path.join(Process_folder, out_csv)
-    gdf.to_csv(Output_point_csv)
-
-    return gdf
-
-
-# Function of create a smoothed polyline
-def create_smoothed_polyline(gdf,out_shp):
-    # Create a LineString geometry from the smoothed points
-    smoothed_line = LineString(gdf[['East', 'North']].values)
-    smoothed_gdf = gpd.GeoDataFrame(geometry=[smoothed_line])
-    smoothed_gdf['ID'] = 1
-    smoothed_gdf = smoothed_gdf.set_crs(gdf.crs, allow_override=True)
-
-    smoothed_gdf.to_file(out_shp)
-
-    del smoothed_gdf
-
-
-# Function to extract point values using a raster file
-def extract_raster_value(in_shp, in_raster, out_shp, variable_name, NoData_value):
-    NoData_value = NoData_value
-
-    # Open shp file
-    pointData = gpd.read_file(in_shp)
-    x = pointData['x']
-    y = pointData['y']
-
-    with rasterio.open(in_raster) as Raster:
-        rows_raster = Raster.height
-        cols_raster = Raster.width
-
-        # Vectorized point-to-pixel index conversion
-        row, col = Raster.index(x, y)
-        # print(row)
-
-        # Convert row and col to NumPy arrays
-        row = np.array(row)
-        col = np.array(col)
-
-        # Filter out-of-range indices
-        valid_indices = (0 <= row) & (row < rows_raster) & (0 <= col) & (col < cols_raster)
-
-        # Create a masked array to handle invalid values
-        z = np.ma.masked_array(np.full_like(row, NoData_value), mask=~valid_indices)
-
-        # Read pixel values for valid indices
-        z[valid_indices] = Raster.read(1)[row[valid_indices], col[valid_indices]]
-
-    # Reshape the array to match the shape of the original grid
-    z = np.array(z)  # Convert the list to a NumPy array
-    pointData[variable_name] = z
-
-    # Set the CRS of the output shapefile to match the input raster
-    pointData.crs = Raster.crs
-
-    # Save the DataFrame as a shape file
-    pointData.to_file(out_shp)
-
-    return pointData
-
-
-# Function to create points
-def create_points(in_gdf, j, distance):  ## add geodataframe
-    line = in_gdf['geometry'].iloc[j]
-    if j < 1:
-        print('\tLine length is:\t', line.length)
-    num_points = int(line.length / distance) + 1
-    points = [line.interpolate(i * distance) for i in range(num_points)]  # distance is roughly input meter.
-
-    return points
-
-
-# Function of degree conversion
-def cartesian2northtrue(car_deg):  ## input Cartesian system degree
-
-    N_deg = 450 - car_deg  # Convert angles to North True
-    # Adjust angles to bring them into [0, 360] range
-    N_deg[N_deg >= 360] -= 360
-    N_deg[N_deg < 0] += 360
-
-    return N_deg
-
-
-# Function to create points along a LineString
-def points_along_lines(in_shp, out_shp, distance):
-    # Initialize lists to store x and y coordinates
-    id = []  # id of line
-    xx = []  # all x coordinates
-    yy = []  # all y coordinates
-    dd = []  # A distance from origin in each line
-    angles_lines = []
-
-    in_gdf = gpd.read_file(in_shp)
-    for j in range(in_gdf['geometry'].shape[0]):
-
-        # Create points along the LineString
-        points = create_points(in_gdf, j, distance)
-        x = []  # x coordinates of jth line
-        y = []  # y coordinates of jth line
-        for i, p in enumerate(points):
-            # Get the x and y coordinates of the point
-            id.append(j), x.append(p.x), y.append(p.y), dd.append(distance * i)
-            # print("x coordinate:", p.x, "y coordinate:", p.y, "distance:", distance * i)             # Print the coordinates
-
-        # The angles between consecutive points
-        x1 = np.array(x)
-        y1 = np.array(y)
-        xx.extend(x)
-        yy.extend(y)
-
-        # Calculate the angles
-        angles = np.degrees(np.arctan2(y1[1:] - y1[:-1], x1[1:] - x1[:-1]))
-        angles_N = cartesian2northtrue(angles)
-        angles_N = np.append(angles_N[0], angles_N)  # copied first column
-        angles_lines.extend(angles_N)
-
-    # Create a DataFrame
-    df = pd.DataFrame()
-    df['id'] = id
-    df['x'] = xx
-    df['y'] = yy
-    df['distance'] = dd
-    df['angle'] = angles_lines
-
-    # Create contour line points
-    out_csv = out_shp.split(".")[0].split("/")[-1] + '.csv' # Linux
-    #out_csv = out_shp.split(".")[0].split("\\")[-1] + '.csv' # Windows
-
-    print(out_csv)
-    Output_point_csv = os.path.join(Process_folder, out_csv)
-
-    # Create a GeoDataFrame from the DataFrame
-    out_gdf = gpd.GeoDataFrame(df)
-    out_gdf.set_geometry(gpd.points_from_xy(out_gdf['x'], out_gdf['y']), inplace=True, crs=in_gdf.crs)
-
-    # Save the DataFrame as a CSV file
-    out_gdf.to_file(out_shp)
-    out_gdf.to_csv(Output_point_csv, index=False, float_format='%.12f')
-
-    return Output_point
-
-# Function to offset a polyline
-def offset_polyline(in_shp, out_shp, dist_offset, join_style):  # join_style: 1 = round, 2 = mitred
-    line = gpd.read_file(in_shp)
-    offset = line.geometry.iloc[0].parallel_offset(dist_offset, 'right', join_style=join_style)  # join_style round
-
-    # Create a GeoDataFrame with the offset LineString
-    offset_gdf = gpd.GeoDataFrame(geometry=[offset])
-    offset_gdf["Length"] = offset_gdf.length
-
-    offset_gdf.crs = line.crs  # gdf_crs
-    offset_gdf.to_file(out_shp)
-
-    return out_shp
-
-# Function to create raster file using gdal
-def create_raster(Rasterdata, Raster_output, data_array, NoData_value, data_type=gdal.GDT_Float32):
-
-    # data_array = Rasterdata.GetRasterBand(1).ReadAsArray()
-    prj = Rasterdata.GetProjection()  # Read projection
-    band = Rasterdata.GetRasterBand(1)
-    bandnum = Rasterdata.RasterCount
-    transform = Rasterdata.GetGeoTransform()
-
-    gtiff_driver = gdal.GetDriverByName('GTiff')  # Use GeoTIFF driver
-    out_ds = gtiff_driver.Create(Raster_output,  # Create a output file
-                                 band.XSize, band.YSize, bandnum, data_type)
-    out_ds.SetProjection(prj)
-    out_ds.SetGeoTransform(transform)
-
-    dst_band = out_ds.GetRasterBand(1)
-    dst_band.WriteArray(data_array)
-    out_ds.GetRasterBand(1).SetNoDataValue(NoData_value)  # Exclude nodata value
-    out_ds.GetRasterBand(1).ComputeStatistics(
-        0)  # Calculate statistics for Raster pyramids (Pyramids can speed up the display of raster data)
-    print('\tMaximum value in this domain is', np.max(data_array))
-
-    del out_ds
-
-    return Raster_output
-
-def read_raster(Rasterdata, GA_stype): #GA_ReadOnly (0) or GA_Update(1)
-    Read_raster = gdal.Open(Rasterdata, GA_stype)
-    if Rasterdata is None:
-        sys.exit('\tCould not open {0}.'.format(Rasterdata))
-
-    return Read_raster
-
-def read_vector(Vectordata, GA_stype): #GA_ReadOnly (0) or GA_Update(1)
-    Read_vector = ogr.Open(Vectordata, GA_stype)
-    if Vectordata is None:
-        sys.exit('\tCould not open {0}.'.format(Vectordata))
-
-    return Read_vector
 
 ### Step 2 ###########################################################
 print("\n#############################################################\n")
@@ -519,7 +262,7 @@ create_raster(Rasterfloat, WL_class, WL, NoData_value, data_type=gdal.GDT_Float3
 # Determine the quadrant of dominant wave direction
 theta = Wave_direction * np.pi / 180.  # convert degree to radian
 # print(theta)
-# Set direction regime (qauadrants)
+# Set direction regime (quadrants)
 if theta > np.pi / 4. and theta <= 3 * np.pi / 4.:
     q = 41  # Quadrants 4 & 1
 elif theta > 3 * np.pi / 4. and theta <= 5 * np.pi / 4.:
@@ -556,21 +299,7 @@ if Baseline_delineation_method == 1:
 
     # define number of contours and range
     conNum = 1
-    conList = [0.25]  # Extract a contour (water/land isopleth)=[0.25,0.5, 0.75 etc]
-
-    def make_slices(data, win_size):
-        # """Return a list of slices given a window size.
-        # data - two-dimensional array to get slices from
-        # win_size - tuple of (rows, columns) for the moving window
-        # """
-        row_num = data.shape[0] - win_size[0] + 1
-        col_num = data.shape[1] - win_size[1] + 1
-        slices = []
-        for i in range(win_size[0]):
-            for j in range(win_size[1]):
-                slices.append(data[i:row_num + i, j:col_num + j])
-        return slices
-
+    conList = [0.20]  # Extract a contour (water/land isopleth)=[0.25,0.5, 0.75 etc]
 
     # Get band value info
     WLclass = gdal.Open(WL_class, GA_ReadOnly)
@@ -650,11 +379,10 @@ if Baseline_delineation_method == 1:
 
     # Create contour line points
     Output_point = os.path.join(Outputspace, 'Contour_points.shp')
-    points_along_lines(Max_length_contour, Output_point, Input_Distance_Transects)
+    points_along_lines(Max_length_contour, Output_point, Input_Distance_Transects, Process_folder)
 
-    gdf = createEW(Output_point)
-
-    gdf = moving_gdf(gdf, moving_value=31, transiton_points=15) # smooth the line
+    gdf = createEW(Output_point, Process_folder)
+    gdf = moving_gdf(gdf, 31, 15, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
 
     Smoothed_polyline = os.path.join(Outputspace, 'Smoothed_line_Contour.shp')  # output file name and location
     create_smoothed_polyline(gdf, Smoothed_polyline) # Create a LineString geometry from the smoothed points
@@ -765,8 +493,8 @@ elif Baseline_delineation_method == 2:
     intersect.crs = points.crs
     intersect.to_file(Output_point)
 
-    gdf = createEW(Output_point)
-    gdf = moving_gdf(gdf, moving_value=31, transiton_points=15) # smooth the line
+    gdf = createEW(Output_point, Process_folder)
+    gdf = moving_gdf(gdf, 31, 15, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
 
     Smoothed_polyline = os.path.join(Outputspace, 'Smoothed_line_W.shp')  # output file name and location
     create_smoothed_polyline(gdf, Smoothed_polyline) # Create a LineString geometry from the smoothed points
@@ -781,9 +509,9 @@ else:
     # Create manual line points
     Output_point = os.path.join(Outputspace, 'Manual_points.shp')
 
-    points_along_lines(Manual_line, Output_point, Input_Distance_Transects)
-    gdf = createEW(Output_point)
-    gdf = moving_gdf(gdf, moving_value=31, transiton_points=15) # smooth the line
+    points_along_lines(Manual_line, Output_point, Input_Distance_Transects, Process_folder)
+    gdf = createEW(Output_point, Process_folder)
+    gdf = moving_gdf(gdf, 31, 15, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
 
     Smoothed_polyline = os.path.join(Outputspace, 'Smoothed_line_Manual.shp')  # output file name and location
     create_smoothed_polyline(gdf,Smoothed_polyline) # Create a LineString geometry from the smoothed points
@@ -820,9 +548,9 @@ del gdf, max_length_gdf  # geopandas is still open or blocked to delete
 # Create baseline_pre points
 Baseline_pre_points=os.path.join(Outputspace,'Baseline_pre_points.shp')
 
-Output_point = points_along_lines(Baseline_pre, Baseline_pre_points, Input_Distance_Transects)
-gdf = createEW(Baseline_pre_points)
-gdf = moving_gdf(gdf, moving_value=31, transiton_points=15)  # smooth the line
+Output_point = points_along_lines(Baseline_pre, Baseline_pre_points, Input_Distance_Transects, Process_folder)
+gdf = createEW(Baseline_pre_points, Process_folder)
+gdf = moving_gdf(gdf, 31, 15, Process_folder)  # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
 
 Baseline = os.path.join(Outputspace,'Baseline.shp')   # output file name and location
 create_smoothed_polyline(gdf, Baseline)  # Create a LineString geometry from the smoothed points
@@ -833,7 +561,7 @@ print('\tDone baseline')
 
 # #Create baseline points
 Baseline_points = os.path.join(Outputspace, 'Baseline_points.shp')
-Output_point = points_along_lines(Baseline, Baseline_points, Input_Distance_Transects)
+Output_point = points_along_lines(Baseline, Baseline_points, Input_Distance_Transects, Process_folder)
 
 ### Step 4 ###########################################################
 print("\n#############################################################\n")
@@ -843,8 +571,8 @@ print("\n#############################################################\n")
 ### 4.1 Compute coordinates of the mid/end points for two transects ###
 print("Step 4.1: Compute coordinates of the mid/end points for two transects")
 
-dis = Input_Transect_length + 1  # Avoid python computation errors, add aditional distance e.g. +1 m
-NP = int(np.ceil(dis / Input_Spacing))  # number of points on the transects, don't use np becasue we alreaqdy use np as numpy shortcut
+dis = Input_Transect_length + 1  # Avoid python computation errors, add additional distance e.g. +1 m
+NP = int(np.ceil(dis / Input_Spacing))  # number of points on the transects, don't use np because we already use np as numpy shortcut
 
 dst_ds = read_vector(Baseline_points, 0)  # 0 means read-only. 1 means writeable.
 layer = dst_ds.GetLayer()
@@ -858,49 +586,39 @@ for i, feat in enumerate(layer):
     point = feat.GetGeometryRef()
     x, y = point.GetX(), point.GetY()
     azimuth = feat["angle"]  # Get the angle from the shapefile feat[5] is feat["angle"]
-    az1 = (azimuth + 90) % 360  # azimuth1 positive direction
-    az2 = (azimuth - 90) % 360  # azimuth2 negative direction
+    if 90 <= Wave_direction and Wave_direction <= 270:
+        az1 = (azimuth - 90) % 360  # azimuth1 positive (downstream) direction
+        az2 = (azimuth + 90) % 360  # azimuth2 negative (upstream) direction
+    else:
+        az1 = (azimuth + 90) % 360 # azimuth1 positive (downstream) direction
+        az2 = (azimuth - 90) % 360 # azimuth2 negative (upstream) direction
 
     fp[i, 0] = x
     fp[i, 1] = y
     fp[i, 2] = az1
     fp[i, 3] = az2
 
-mx = np.zeros((featureCount - 1, 1))  # mid point x  (column, row)
-my = np.zeros((featureCount - 1, 1))  # mid point y (column, row)
-# print((fp[i, 0] + fp[i+1, 0])/2)
-
 for i in range(0, featureCount - 1):
-    mx[i, 0] = (fp[i, 0] + fp[i + 1, 0]) / 2
-    my[i, 0] = (fp[i, 1] + fp[i + 1, 1]) / 2
-    fp[i, 0] = mx[i, 0]
-    fp[i, 1] = my[i, 0]
+    fp[i, 0] = (fp[i, 0] + fp[i + 1, 0]) / 2 # Overwrite to mid point x  (column, row)
+    fp[i, 1] = (fp[i, 1] + fp[i + 1, 1]) / 2 # Overwrite to mid point y (column, row)
 
     # Convert to Cartesian coordinate
-    if -(fp[i, 2] - 90) < 0:
-        az1_Cartesian = 360 - (fp[i, 2] - 90)
-    else:
-        az1_Cartesian = -(fp[i, 2] - 90)
-
+    az1_Cartesian = (-(fp[i, 2] - 90)) % 360
     fp[i, 4] = az1_Cartesian
     # print(az1_Cartesian)
 
     dx2 = dis * np.cos(az1_Cartesian * np.pi / 180.)
-    x2 = mx[i, 0] + dx2
+    x2 = fp[i, 0] + dx2
     dy2 = dis * np.sin(az1_Cartesian * np.pi / 180.)
-    y2 = my[i, 0] + dy2
+    y2 = fp[i, 1] + dy2
 
-    if -(fp[i, 3] - 90) < 0:
-        az2_Cartesian = 360 - (fp[i, 3] - 90)
-    else:
-        az2_Cartesian = -(fp[i, 3] - 90)
-
+    az2_Cartesian = (-(fp[i, 3] - 90)) % 360
     fp[i, 5] = az2_Cartesian
 
     dx3 = dis * np.cos(az2_Cartesian * np.pi / 180.)
-    x3 = mx[i, 0] + dx3
+    x3 = fp[i, 0] + dx3
     dy3 = dis * np.sin(az2_Cartesian * np.pi / 180.)
-    y3 = my[i, 0] + dy3
+    y3 = fp[i, 1] + dy3
 
     fp[i, 6] = x2
     fp[i, 7] = y2
@@ -928,15 +646,20 @@ paths_a = ogr.Geometry(ogr.wkbMultiLineString)  # azimuth1 on the right side fac
 paths_b = ogr.Geometry(ogr.wkbMultiLineString)  # azimuth2 on the left side facing forward
 
 ###### paths_a and paths_b are sensitively affected by Wave_direction_range ##########################################################################
-###### Users can switch the logical statemenet depending on the situations ###########################
+###### Users can switch the logical statement depending on the situations ###########################
 for i in range(df.shape[0]):
-    if abs(Wave_direction - df.iloc[i, 3]) <= Wave_direction_range:  # abs(Wave_direction-df.iloc[i,3]) != None:
+
+    # Calculate the upper and lower bounds of the range
+    W1 = (Wave_direction + Wave_direction_range) % 360
+    W2 = (Wave_direction - Wave_direction_range) % 360
+
+    if W2 <= fp[i, 3] <= W1 or (W1 < W2 and (fp[i, 3] >= W2 or fp[i, 3] <= W1)):  # downstream is opposite (add +180 degree or use fp[i,3] to switch)
         path_a = ogr.Geometry(ogr.wkbLineString)
         path_a.AddPoint(df.iloc[i, 0], df.iloc[i, 1])
         path_a.AddPoint(df.iloc[i, 6], df.iloc[i, 7])
         paths_a.AddGeometry(path_a)
 
-    if abs(Wave_direction - df.iloc[i, 2]) <= Wave_direction_range:  # abs(Wave_direction-df.iloc[i,2]) != None:
+    if W2 <= fp[i, 2] <= W1 or (W1 < W2 and (fp[i, 2] >= W2 or fp[i, 2] <= W1)):  # downstream is opposite (add +180 degree)
         path_b = ogr.Geometry(ogr.wkbLineString)
         path_b.AddPoint(df.iloc[i, 0], df.iloc[i, 1])
         path_b.AddPoint(df.iloc[i, 8], df.iloc[i, 9])
@@ -999,7 +722,7 @@ else:
 
 # Create transect points
 Transect_points = os.path.join(Outputspace, 'Transect_points.shp')
-Output_point = points_along_lines(transect, Transect_points, Input_Spacing)
+Output_point = points_along_lines(transect, Transect_points, Input_Spacing, Process_folder)
 
 # Copy the raster values
 RV_transect_points = os.path.join(Outputspace, 'RV_transect_points.shp')
@@ -1146,7 +869,8 @@ idw = gdal.Grid(WT_raster_gdal, RV_transect_points_filter, format="GTiff",
                 outputSRS=prj, width=col_num, height=row_num, outputType=gdal.GDT_Float32, algorithm=alg_setting,
                 zfield='WT')
 # caution for the assigned output bounds: [ulx, uly, lrx, lry]
-del idw
+print ("Spatial interpolation is done.")
+del idw  # Close file
 
 # Extract IDW data only land regions.
 Output_raster = os.path.join(Outputspace,'WT_raster_extracted.tif')
@@ -1162,6 +886,7 @@ band = out_ds.GetRasterBand(1)
 band.GetMetadata()
 band.SetNoDataValue(NoData_value)  # exclude nodata value
 band.ComputeStatistics(0)  # calculate statistics
+
 
 del out_ds  # Close file
 del Input_raster

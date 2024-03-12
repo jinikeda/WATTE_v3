@@ -1,4 +1,4 @@
-# WATTE (Wave ATTEnuation Model) ver3.0: Released on October 14th 
+# WATTE (Wave ATTEnuation Model) ver3.0: Released on March 12th, 2024 
 
 ### § 1. WATTE toolbox
 WATTE is a one-dimensional model based on an exponential decay formula for marsh coastlines. The functional basis of WATTE is wave energy dissipation by vegetation: 
@@ -23,13 +23,10 @@ where $W_T$ is the fraction of wave height transmission along the distance $x$ i
 
 <br />
 
-WATTE version 2 is an **open source-based** toolbox using Python 3 and QGIS (Verified at version **Python 3.10** and **QGIS 3.22**, https://github.com/jinikeda/WATTE_v2). \
+
 WATTE version 3 is an **open source-based** toolbox using Python 3 only, enabling it to run on **high-performance computing**.
 It estimates and maps wave attenuation along marsh coastlines following an exponential decay. \
 **Developer: Jin Ikeda, Shu Gao, Christopher E. Kees, and Peter Bacopoulos**
-
-WATTE version 1 was developed by M. Foster-Martinez, Karim Alizad, and Scott C. Hagen (2020). WATTE version 1 needs an **ArcGIS** license (refer to https://coastalscience.noaa.gov/news/gis-toolbox-for-estimating-wave-attenuation-by-coastal-marshes-developed-by-noaa-funded-study/) \
-<br />&ensp; [Download WATTE ver1](https://digitalcommons.lsu.edu/civil_engineering_data/1/)
 
 
 ### § 2. Software Requirements
@@ -48,13 +45,13 @@ See: WATTE_environment.yml \
 
 * Run the code:
   ##### Virtual environment setting
-    * Step 1: Download a Python code and input data. Example, *git clone xx*    
-    * Step 2: *conda env create -f environment.yml*
+    * Step 1: Download a Python code and input data. Example, *git clone git@github.com:jinikeda/WATTE_v3.git*    
+    * Step 2: *conda env create -f WATTE_environment.yml*
     * Step 3  *conda activate WATTE*
 
   ##### Running Python code
     * Step 1: Change the path of the working directory in the Python code
-    * Step 2: *python WATTE_v3_dev101423.py*
+    * Step 2: *python WATTE_v3.py*
 
 ### § 3. Flowchart
 ![Flowchart](https://github.com/jinikeda/WATTE_v2_DEV/blob/main/Photo/Figure1.png "")
@@ -131,3 +128,7 @@ After obtaining the baseline, transects normal to baseline extend inshore every 
 
 
 This software is released under the MIT License, see LICENSE.txt.
+
+WATTE version 1 was developed by M. Foster-Martinez, Karim Alizad, and Scott C. Hagen (2020). WATTE version 1 needs an **ArcGIS** license (refer to https://coastalscience.noaa.gov/news/gis-toolbox-for-estimating-wave-attenuation-by-coastal-marshes-developed-by-noaa-funded-study/) \
+<br />&ensp; [Download WATTE ver1](https://digitalcommons.lsu.edu/civil_engineering_data/1/)
+WATTE version 2 is an **open source-based** toolbox using Python 3 and QGIS (Verified at version **Python 3.10** and **QGIS 3.22**, https://github.com/jinikeda/WATTE_v2). \
