@@ -30,7 +30,7 @@ It estimates and maps wave attenuation along marsh coastlines following an expon
 
 
 ### § 2. Software Requirements
-See: WATTE_environment.yml \
+See: WATTE_environment.yml 
 #### Require Python packages: ####
 * Python (tested, 3.10.12) 
 * GDAL (tested, 3.7.2) 
@@ -41,7 +41,7 @@ See: WATTE_environment.yml \
 * scipy (tested, 1.11.2
 
 #### Python code ####
-&ensp;**WATTE_v3_dev031823.py** 
+&ensp;**WATTE_v3.py** 
 
 * Run the code:
   ##### Virtual environment setting
@@ -64,8 +64,9 @@ See: WATTE_environment.yml \
 
 #### User's optional ####
 * Manual shoreline definition in vector format when the user selects a manual baseline delineation
+* Inundation depth to calculate inundation level
 
-### § 5. Input parameters in WATTE ver2
+### § 5. Input parameters in WATTE ver3
 
 #### Must ####
 * Raster values (Water, Marshes, and Land or others)
@@ -73,10 +74,10 @@ See: WATTE_environment.yml \
   * Method 1: Isopleth Water/Land with a moving average window (auto baseline delineation) 
   * Method 2: 1-way scanning based on a dominant wave direction (auto baseline delineation) 
   * Method 3: Manual definition
-* Dominant wave direction (0-360 [degrees] clockwise from true North)
+* Dominant wave direction (0-360 [degrees] clockwise from true North) and evaluate wave angle range (e.g., 90 degrees for each side)
 
 #### User's optional ####
-* Wave angle (default = 179 [degrees] from a dominant wave direction, which evaluates whole transects)
+* Wave angle (default = 90 [degrees] from a dominant wave direction, which evaluates whole transects)
 * Transect length [m] (default = 1000 [m])
 * Distance between transects [m] (default = 10 [m])
 * Spacing of points along transect [m] (default = 10 [m])
@@ -131,4 +132,7 @@ This software is released under the MIT License, see LICENSE.txt.
 
 WATTE version 1 was developed by M. Foster-Martinez, Karim Alizad, and Scott C. Hagen (2020). WATTE version 1 needs an **ArcGIS** license (refer to https://coastalscience.noaa.gov/news/gis-toolbox-for-estimating-wave-attenuation-by-coastal-marshes-developed-by-noaa-funded-study/) \
 <br />&ensp; [Download WATTE ver1](https://digitalcommons.lsu.edu/civil_engineering_data/1/)
-WATTE version 2 is an **open source-based** toolbox using Python 3 and QGIS (Verified at version **Python 3.10** and **QGIS 3.22**, https://github.com/jinikeda/WATTE_v2). \
+
+WATTE version 2 is an **open source-based** toolbox using Python 3 and QGIS (Verified at version **Python 3.10** and **QGIS 3.22**, https://github.com/jinikeda/WATTE_v2).
+
+
