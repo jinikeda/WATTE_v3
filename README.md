@@ -24,7 +24,7 @@ where $W_T$ is the fraction of wave height transmission along the distance $x$ i
 <br />
 
 
-WATTE version 3 is an **open source-based** toolbox using Python 3 only, enabling it to run on **high-performance computing**.
+WATTE version 3 is an **open source-based** toolbox using **Python 3 only**, enabling it to run on **high-performance computing**.
 It estimates and maps wave attenuation along marsh coastlines following an exponential decay. \
 **Developer: Jin Ikeda, Shu Gao, Christopher E. Kees, and Peter Bacopoulos**
 
