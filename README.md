@@ -24,8 +24,9 @@ where $W_T$ is the fraction of wave height transmission along the distance $x$ i
 <br />
 
 
-WATTE version 3 is an **open source-based** toolbox using **Python 3 only**, enabling it to run on **high-performance computing**.
+WATTE version 3 is an **open-source toolbox that uses Python 3 only**, enabling it to run on **high-performance computing**.
 It estimates and maps wave attenuation along marsh coastlines following an exponential decay. \
+
 **Developer: Jin Ikeda, Shu Gao, Christopher E. Kees, and Peter Bacopoulos**
 
 
@@ -95,7 +96,7 @@ See: WATTE_environment.yml
 |     Elevation and water levels (ADCIRC)    |     Inundation depth (low, medium, high)    |     Selection of k-value                  |
 |     Biomass distribution (Hydro-MEM)          |     Biomass density (low, medium, high)     |     Selection of k-value                  |
 
-Here, the user manually determines decay constants from  **Table 1** when the user don't have ADCIRC and Hydro-MEM results. But, a classification map (Land, water, and marshes) is a must. \
+Here, the user manually determines decay constants from  **Table 1** when the user doesn't have ADCIRC and Hydro-MEM results. But, a classification map (Land, water, and marshes) is a must. \
 &ensp; [Information about Hydro-MEM](https://www.arcgis.com/apps/MapJournal/index.html?appid=85242c8a228945f3b943f3ec7f01e035)
 
 
@@ -112,7 +113,7 @@ Here, the user manually determines decay constants from  **Table 1** when the us
 
 <p style="text-align: left;"><strong>Figure.1</strong> Baseline delineation: three methods in Grand Bay, MS and AL</p>
 
-Grand Bay has a complex marine-dominated embayment system. There is a general consistency between the three baseline definitions; however, there are also local differences. The based on moving-average isopleth overlooks along the western edge of the protruding landform in the center of the image. The method based on a one-way scan doesn’t capture the local embayment in the center of the image due to the northward scanning terminating before reaching the local embayment. The two small islands in the eastern portion of the image are captured by the one-way scan but not the back-barrier shoreline because of the terminating northward scan. The two automated methods cannot fully capture such complex geometry. The user can adjust the input parameters or use a manual definition shoreline (baseline) at that time. 
+Grand Bay has a complex marine-dominated embayment system. There is a general consistency between the three baseline definitions; however, there are also local differences. The based on moving-average isopleth overlooks along the western edge of the protruding landform in the center of the image. The method based on a one-way scan doesn’t capture the local embayment in the center of the image due to the northward scanning terminating before reaching the local embayment. The one-way scan captures the two small islands in the eastern portion of the image but not the back-barrier shoreline because of the terminating northward scan. The two automated methods cannot fully capture such complex geometry. The user can adjust the input parameters or use a manual definition shoreline (baseline) at that time. 
 
 #### Calculate attenuation over transects ####
 ![Transects](https://github.com/jinikeda/WATTE_v3/blob/main/Photo/Figure3.png "")
@@ -124,11 +125,11 @@ After obtaining the baseline, transects normal to baseline extend inshore every 
 #### Map attenuation ####
 ![Map](https://github.com/jinikeda/WATTE_v3/blob/main/Photo/Figure4.png "")
 
-<p style="text-align: left;"><strong>Figure.3</strong> $W_T$ at the isopleth W/L = 0.25 with a moving average window = 31 cells</p>
+<p style="text-align: left;"><strong>Figure.3</strong> $W_T$ at the isopleth W/L = 0.25 with a moving average window = 31 cells. Here, the available wave angle is set at 179.99 so that evaluate whole wave directions in this case</p>
 
 
 
-This software is released under the MIT License, see LICENSE.txt.
+This software is released under the MIT License; see LICENSE.txt.
 
 WATTE version 1 was developed by M. Foster-Martinez, Karim Alizad, and Scott C. Hagen (2020). WATTE version 1 needs an **ArcGIS** license (refer to https://coastalscience.noaa.gov/news/gis-toolbox-for-estimating-wave-attenuation-by-coastal-marshes-developed-by-noaa-funded-study/) \
 <br />&ensp; [Download WATTE ver1](https://digitalcommons.lsu.edu/civil_engineering_data/1/)
