@@ -32,8 +32,19 @@ def E2W(gdf):
 
     return gdf
 
-# Function of add East and West coordinate and save as a csv file
-def createEW(in_shp, target_folder):
+def N2S(gdf):
+    point_start = gdf['North'].iloc[0]
+    point_end = gdf['North'].iloc[-1]
+
+    if point_start > point_end:  # The string order is North to South
+        pass
+    else:
+        gdf = gdf.loc[::-1]  # reorder the contents When polyline direction is South to North side
+
+    return gdf
+
+# Function of add East and North coordinates and reorder the direction of the polyline
+def sort2polyline(in_shp, target_folder,q): # add quadrant information to modify the direction of the polyline (04/15/2024)
     gdf = gpd.read_file(in_shp)
     centroidseries = gdf['geometry'].centroid
     East, North = [list(t) for t in zip(*map(getXY, centroidseries))]
@@ -41,7 +52,11 @@ def createEW(in_shp, target_folder):
     gdf['East'] = East
     gdf['North'] = North
 
-    gdf = E2W(gdf)
+    if q == 12 or q == 34:
+        gdf = E2W(gdf)
+    else:
+        gdf = N2S(gdf)
+
     out_csv = in_shp.split(".")[0].split("/")[-1] + '.csv'  # Linux
     Output_point_csv = os.path.join(target_folder, out_csv)
     gdf.to_csv(Output_point_csv)
@@ -122,6 +137,34 @@ def extract_raster_value(in_shp, in_raster, out_shp, variable_name, NoData_value
     pointData.to_file(out_shp)
 
     return pointData
+
+def extract_point_values(raster_path, points_path, indices, no_decay_value):
+    # Load the shapefile of points
+    points = gpd.read_file(points_path)
+    # Load the DEM raster
+    dem = rasterio.open(raster_path)
+
+    # extract xy from point geometry
+    raster_values = []
+    array = dem.read(1)
+
+    for index, point in zip(indices, points.geometry):
+        if index: # If the point is within the marsh area, extract the z value
+            x = point.xy[0][0]
+            y = point.xy[1][0]
+            row, col = dem.index(x, y)
+
+            # Append the z value to the list of z values
+            raster_values.append(array[row, col])
+        else:
+            # Append no_decay_value to the list of z values
+            raster_values.append(no_decay_value)
+
+    points['DecayC'] = raster_values
+    points.to_file(points_path, driver='ESRI Shapefile')
+    del points
+
+    return raster_values
 
 
 # Function to create points
@@ -234,7 +277,13 @@ def create_raster(Rasterdata, Raster_output, data_array, NoData_value, data_type
     out_ds.GetRasterBand(1).SetNoDataValue(NoData_value)  # Exclude nodata value
     out_ds.GetRasterBand(1).ComputeStatistics(
         0)  # Calculate statistics for Raster pyramids (Pyramids can speed up the display of raster data)
-    print('\tMaximum value in this domain is', np.max(data_array))
+
+    if np.any(np.isnan(data_array)):
+        # Replace None with np.nan in data_array
+        data_array = np.where(data_array == None, np.nan, data_array)
+        print('\tMaximum value in this domain without nan is', np.nanmax(data_array))
+    else:
+        print('\tMaximum value in this domain is', np.max(data_array))
 
     del out_ds
 
@@ -246,6 +295,33 @@ def read_raster(Rasterdata, GA_stype): #GA_ReadOnly (0) or GA_Update(1)
         sys.exit('\tCould not open {0}.'.format(Rasterdata))
 
     return Read_raster
+
+
+def read_raster_info(raster_file, band_num, read_info = False): # Future modify the function read transform and projection information March 11, 2024 (Jin)
+    raster = gdal.Open(raster_file)
+
+    if raster is None:
+        sys.exit('\tCould not open {0}.'.format(raster_file))
+
+    band_values = raster.GetRasterBand(band_num).ReadAsArray()
+
+    if read_info:
+        transforms = raster.GetGeoTransform()
+        X = raster.RasterXSize        # Read column size
+        Y = raster.RasterYSize        # Read row size (negative value)
+        prj = raster.GetProjection()  # Read projection
+        return transforms, X, Y, prj, band_values
+
+        # transforms[0] # Origin x coordinate
+        # transforms[1] # Pixel width
+        # transforms[2] # x pixel rotation (0° if image is north up)
+        # transforms[3] # Origin y coordinate
+        # transforms[4] # y pixel rotation (0° if image is north up)
+        # transforms[5] # Pixel height (negative)
+
+    else:
+        return band_values
+
 
 def read_vector(Vectordata, GA_stype): #GA_ReadOnly (0) or GA_Update(1)
     Read_vector = ogr.Open(Vectordata, GA_stype)
@@ -267,10 +343,91 @@ def make_slices(data, win_size):
     # data - two-dimensional array to get slices from
     # win_size - tuple of (rows, columns) for the moving window
     # """
-    row_num = data.shape[0] - win_size[0] + 1
-    col_num = data.shape[1] - win_size[1] + 1
+    row_num = data.shape[0] - win_size[0] + 1 # Number of rows for the slice
+    col_num = data.shape[1] - win_size[1] + 1 # Number of columns for the slice
     slices = []
     for i in range(win_size[0]):
         for j in range(win_size[1]):
             slices.append(data[i:row_num + i, j:col_num + j])
     return slices
+
+
+# Define the dictionary of marsh decay constants first one is inundation depth and the second one is marsh density
+guidance_decay_constants_table = {
+    ("low_low"): 0.035,
+    ("medium_low"): 0.021,
+    ("high_low"): 0.001,
+    ("low_medium"): 0.055,
+    ("medium_medium"): 0.030,
+    ("high_medium"): 0.006,
+    ("low_high"): 0.107,
+    ("medium_high"): 0.090,
+    ("high_high"): 0.015,
+    ("water"): 0.0,
+    ("land"): 9999
+}
+
+def set_decay_values2tiff(Inun_level, bio_density, Input_Water_Class,Input_Other_Class, guidance_decay_constants_table):
+
+    # Still Considering use Marsh_Class instead of 16, 23, 32. Here, 16 is low, 23 is medium, 32 is high
+
+    print("\n#############################################################")
+    print("Set dacay constant values to tiff file using inundation level and marsh density")
+    print("\n#############################################################")
+
+    # Define the masks
+    marsh_mask_low_low = (Inun_level < 1) & (bio_density == 16)
+    marsh_mask_medium_low = ((1 <= Inun_level) & (Inun_level < 2)) & (bio_density == 16)
+    marsh_mask_high_low = (2 <= Inun_level) & (bio_density == 16)
+
+    marsh_mask_low_medium = (Inun_level < 1) & (bio_density == 23)
+    marsh_mask_medium_medium = ((1 <= Inun_level) & (Inun_level < 2)) & (bio_density == 23)
+    marsh_mask_high_medium = (2 <= Inun_level) & (bio_density == 23)
+
+    marsh_mask_low_high = (Inun_level < 1) & (bio_density == 32)
+    marsh_mask_medium_high = ((1 <= Inun_level) & (Inun_level < 2)) & (bio_density == 32)
+    marsh_mask_high_high = (2 <= Inun_level) & (bio_density == 32)
+
+    mask_water = (bio_density == Input_Water_Class)
+    mask_other = (bio_density == Input_Other_Class)
+
+    # Retrieve the corresponding values from the dictionary
+    key_list =["water", "low_low", "medium_low", "high_low", "low_medium", "medium_medium", "high_medium", "low_high", "medium_high", "high_high", "water"]
+    value_list = [guidance_decay_constants_table.get(key) for key in key_list]
+    value_other = guidance_decay_constants_table.get("other")
+
+    # Create a list of masks
+    mask_list = [mask_water, marsh_mask_low_low, marsh_mask_medium_low, marsh_mask_high_low,
+                 marsh_mask_low_medium, marsh_mask_medium_medium, marsh_mask_high_medium,
+                 marsh_mask_low_high, marsh_mask_medium_high, marsh_mask_high_high,
+                 ]
+
+    # Initialize decay_tiff_values
+    decay_tiff_values = np.full(bio_density.shape, value_other, dtype=np.float32)
+
+    # Iterate over the masks and values
+    for mask, key, value in zip(mask_list, key_list, value_list):
+        # Apply the mask to the decay_tiff_values array and set the corresponding elements to the value
+        print(f"Value for {key}:", value)
+        decay_tiff_values[mask] = value
+
+    return decay_tiff_values
+
+# def create_raster(file, reference_raster, z_array, dtype, no_data_value,stats_flag=False):
+#     # Create the output raster dataset
+#     gtiff_driver = gdal.GetDriverByName('GTiff')
+#     out_ds = gtiff_driver.Create(file, reference_raster.RasterXSize, reference_raster.RasterYSize, reference_raster.RasterCount, dtype) # dtype is e.g. gdal.GDT_Int32 and gdal.GDT_Float32
+#     out_ds.SetProjection(reference_raster.GetProjection())
+#     out_ds.SetGeoTransform(reference_raster.GetGeoTransform())
+#     dst_band = out_ds.GetRasterBand(1)
+#     dst_band.WriteArray(z_array)
+#     dst_band.SetNoDataValue(no_data_value)  # Exclude nodata value
+#     stats = dst_band.ComputeStatistics(0)
+#     min_val, max_val, mean_val, std_dev_val = stats
+#     if stats_flag:
+#         print(
+#         f'Made a raster file. Statistics:\n\tMinimum: {min_val}, Maximum: {max_val}, Mean: {mean_val}, Standard Deviation: {std_dev_val}')
+#     else:
+#         print('Made a raster file')
+#     out_ds = None
+#     return

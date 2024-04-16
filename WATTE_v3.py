@@ -1,21 +1,22 @@
-# Wave Attenuation Toolbox (WATTE) version 3.0
+# Wave Attenuation Toolbox (WATTE) version 3.1
 # Developed by Center for Computation & Technology and Coastal Ecosystem Design Studio at Louisiana State University (LSU).
 # WATTE version 1 was originally developed by M. Foster-Martinez, University of New Orleans: Karim Alizad, University of South Carolina: Scott C. Hagen, LSU (https://digitalcommons.lsu.edu/civil_engineering_data/1/)
 # WATTE version 2 was developed using Python3 and QGIS in 2023
 # Developer: Jin Ikeda, Shu Gao, Christopher E. Kees, and Peter Bacopoulos
-# Last modified 03/12/2024
+# Last modified 04/16/2024
 # Deepest thanks: This software is dedicated to in memory of Dr. Scott C. Hagen. We are truly blessed to have been one of your pupils. We will spread your idea further.
 #
 # WATTE version 3 is an open source-based toolbox using Python 3 (Verified at version Python 3.10).
 # This model estimates and maps wave attenuation along marsh coastlines following an exponential decay.
+# version 3.1: This version includes set decay constants from a combination of Inun_level and biomass_density classifications
 #
 # This software is released under the MIT License, see LICENSE.txt.
 #
-### Step 1 #############################################################
+### Step 1 #############################################################################################################
 print("\n#############################################################\n")
 print("Step 1: Import modules and inputs parameters")
 print("\n#############################################################\n")
-########################################################################
+########################################################################################################################
 
 ### 1.1 Import modules ###
 print("Step 1.1: Import modules")
@@ -30,9 +31,9 @@ import rasterio
 
 startTime = time.time()
 
-######################################################################
+########################################################################################################################
 # Working directory and input parameters
-######################################################################
+########################################################################################################################
 
 # Print the current working directory
 print("\tCurrent working directory: {0}".format(os.getcwd()))
@@ -47,18 +48,26 @@ os.chdir(Workspace)
 print("Step 1.2: Input parameters and file")
 
 # Dominant wave direction North True
-Wave_direction = float(150)  # North is 0 [degree] and clockwise
+Wave_direction = float(300)  # North is 0 [degree] and clockwise
 Wave_direction_range = 179  # Criterion for consider transects
 # Note: Wave_direction = float(input("Dominant wave direction in North True: [degree] between 0-360 type here->"))
 assert 0 <= Wave_direction < 360, "\tPlease input the values between 0-360 degree ...{{ (>_<) }}\n"
 
 # Input raster data
 Inputspace = os.path.join(Workspace, "Input_data")
-Raster_file = os.path.join(Inputspace, "Grand_Bay_2050_IM.tif")
+Raster_file = os.path.join(Inputspace, "Productivity_TCB.tif")
 
-##################################################################################################################
+# Make process folder
+Process_folder = os.path.join(Workspace, 'Process')
+os.makedirs(Process_folder, exist_ok=True)
+
+# Make process folder
+Outputspace = os.path.join(Workspace, 'Output_data')
+os.makedirs(Outputspace, exist_ok=True)
+
+########################################################################################################################
 # Input baseline delineation method
-##################################################################################################################
+########################################################################################################################
 # Type 1, Method 1 Land (1): Water (0) isopleth with a moving average method
 # Type 2, Method 2 1-way scan based on significant wave direction
 # Type 3, Method 3 Baseline delineation based on a manual polyline also provide the path
@@ -66,10 +75,58 @@ Raster_file = os.path.join(Inputspace, "Grand_Bay_2050_IM.tif")
 
 # Here polyline is estimated to draw from left side to right side, which may affect offset direction (use E2W function)
 
-Baseline_delineation_method = 1
+Baseline_delineation_method = 2
 Manual_line = os.path.join(Inputspace, "Polyline.shp")
 assert 1 <= Baseline_delineation_method <= 3, "\tPlease input the values between 1-3 ...{{ (>_<) }}\n"
-##################################################################################################################
+
+########################################################################################################################
+# Calculate inundation depth when Inundation_flag is True
+########################################################################################################################
+# import argparse, sys
+# def main(argv):
+#     parser = argparse.ArgumentParser(description='Reading inundation depth') # Create the parser
+#     parser.add_argument("--inundationFile", type=str,default=None, help="Path to inundation file <*.tif>")
+#     args = parser.parse_args(argv) # Parse the arguments
+#
+#     print('Inundation file:', args.inundationFile)
+#
+#     return args.inundationFile
+#
+# if __name__ == "__main__":
+#     main(sys.argv[1:])
+#     print('Find inundation file')
+
+# Swith to True if you want to use inundation file
+Inundation_flag = True
+
+if Inundation_flag:
+    try:
+        Inundation_file = os.path.join(Inputspace, "Inundation_depth_TCB.tif")
+        assert os.path.exists(Inundation_file), "\tPlease input the valid file path ...{{ (>_<) }}\n"
+    except:
+        print('Inundation file is not found')
+else:
+    print('Inundation file is not set to be used')
+
+marsh_height = 0.25  # Assumption of vegetation (marsh) height [m]
+ndv = -99999  # No data value (ndv) using ADCIRC conversion
+
+Inun_depth = read_raster_info(Inundation_file,1)
+print ('Inundation depth \t',Inun_depth.min(),Inun_depth.max())
+reference_raster = read_raster(Inundation_file,GA_ReadOnly)
+
+min_depth = 1e-6  # Minimum depth for wave attenuation calculation [m]
+Inun_depth = np.where(Inun_depth < min_depth, 0, Inun_depth)
+Inun_level = np.where((0 < Inun_depth) & (marsh_height != 0), Inun_depth / marsh_height, ndv)
+
+# Output inundation level
+Raster_output = os.path.join(Outputspace, 'Inundation_level.tif')
+create_raster(reference_raster, Raster_output, Inun_level, ndv, data_type=gdal.GDT_Float32)
+print ('Inundation depth \t',Inun_depth.max(),'and level\t', Inun_level.max())
+
+########################################################################################################################
+# Read marsh classifications
+########################################################################################################################
 
 # Classification(s), Water, String
 Input_Water_Class = "40"  # Don't use 0 (no data)
@@ -81,9 +138,10 @@ Input_Other_Class = "55"
 Input_Marsh_Class = "16,23,32"
 Marsh_Class = [int(x) for x in Input_Marsh_Class.split(',')]
 
-# Decay constant for each classification of water and marshes, String
-Input_Decay_Constant = "0.021,0.030,0.090"
-Decay_Constant_M = [float(x) for x in Input_Decay_Constant.split(',')]
+if Inundation_flag == False:
+    # Decay constant for each classification of water and marshes, String
+    Input_Decay_Constant = "0.021,0.030,0.090"
+    Decay_Constant_M = [float(x) for x in Input_Decay_Constant.split(',')]
 
 # Transect length [m]
 Input_Transect_length = 1000
@@ -99,15 +157,9 @@ Input_Spacing = 10  # dx = (x_i+1−x_i)
 
 # Interpolation_method = "IDW"          # currently IDW only
 
-# Make process folder
-Process_folder = os.path.join(Workspace, 'Process')
-os.makedirs(Process_folder, exist_ok=True)
+no_decay_value = 9999  # No decay value
 
-# Make process folder
-Outputspace = os.path.join(Workspace, 'Output_data')
-os.makedirs(Outputspace, exist_ok=True)
-
-########################### Messages #################################
+########################### Messages ###################################################################################
 print("\tDominant wave direction: ", Wave_direction, "[degree]")
 print("\tInput raster dataset is " + Raster_file)
 print("\tWater classification is ", end=" ")
@@ -118,8 +170,10 @@ print(*Input_Other_Class, sep=" ")
 Input_Other_Class = int(Input_Other_Class)
 print("\tMarsh classification is ", end=" ")
 print(*Marsh_Class)
-print("\tDecay constant for each classification of marsh is ", end=" ")
-print(*Decay_Constant_M)
+
+if Inundation_flag == False:
+    print("\tDecay constant for each classification of marsh is ", end=" ")
+    print(*Decay_Constant_M)
 
 # print(Decay_Constant_M)
 print("\tTransect length is ", Input_Transect_length, "meter")
@@ -131,20 +185,20 @@ print("\tInput_list：", Input_list)
 # print ('Wave decay stopping point is', Input_Wave_decay)
 print("\tSpacing of points along transect is ", Input_Spacing, "meter")
 
-### Step 2 ###########################################################
+### Step 2 #############################################################################################################
 print("\n#############################################################\n")
 print('Step 2: Outputs')
 print("\n#############################################################\n")
-######################################################################
+########################################################################################################################
 Outdir = Process_folder
 print("\tOutput Directory is ", Outdir)
 
 ### 2.1 Read raster(input) file ###
 print("Step 2.1: Read raster file")
 
-######################################################################
+########################################################################################################################
 # Read raster(input) file
-######################################################################
+########################################################################################################################
 
 Rasterdata = read_raster(Raster_file, GA_ReadOnly)
 print("\tReading raster file (georeference, etc)")
@@ -179,6 +233,19 @@ RV = Rasterdata.GetRasterBand(1).ReadAsArray()  # raster values in the band
 RV_1D = RV.reshape(-1)  # 1D array is needed to use set function
 Input_list_data = np.unique(RV_1D)
 nodata = np.setdiff1d(Input_list_data, np.unique(Input_list))  # find not matched data
+
+########################################################################################################################
+# Set decay constant values to a tiff file when Inundation_flag is True
+
+# Set decay constants for marsh from a combination of Inun_level and biomass_density classifications
+# The details, please see set_decay_values2tiff function and guidance_decay_constants_table
+########################################################################################################################
+
+if Inundation_flag:
+    decay_tiff_values = set_decay_values2tiff(Inun_level,RV,Input_Water_Class,Input_Other_Class, guidance_decay_constants_table) #,Marsh_Class
+
+    decay_tiff = os.path.join(Outputspace, 'decay_tiff_values.tif')
+    create_raster(Rasterdata, decay_tiff, decay_tiff_values, no_decay_value, data_type=gdal.GDT_Float32)
 
 #######################################################################################################################
 print('\n\tnon-Input value list', nodata, '\n')  # Need to check this
@@ -273,27 +340,28 @@ else:
     q = 12  # Quadrants 1 & 2
 print("\tQuadrants is ", q)
 
-### Step 3 ###########################################################
+### Step 3 #############################################################################################################
 print("\n#############################################################\n")
 print("Step 3: Make a baseline")
 print("\n#############################################################\n")
-######################################################################
 
-##################################################################################################################
 ### 3.1 Baseline delineation #######
 
 # Method 1 Land (1): Water (0) isopleth with a moving average method
 # Method 2 1-way scan based on significant wave direction
 # Method 3 Baseline delineation based on a manual polyline
-##################################################################################################################
+########################################################################################################################
+Moving_average_size = 3  # User freely change the window size
+MA_range = int((Moving_average_size - 1) / 2)  # don't use a name "range" because range will reuse in for loops
+
 if Baseline_delineation_method == 1:
-    ##################################################################################################################
+    ####################################################################################################################
     # Method1 Baseline delineation based on isopleth with a moving average method
-    ##################################################################################################################
+    ####################################################################################################################
     print("\tBaseline delineation based on isopleth with a moving average method")
 
     # Conduct moving average resampling (this method requires large memory. The moving windows shouldn't use a large value on your stand-alone PC)
-    Moving_average_size = 31  # User freely change the window size
+
     ResampleRasterMA = os.path.join(Outputspace, 'ResampleMA.tif')  # Resample file name
     Contour = os.path.join(Outputspace, 'Contour.shp')
 
@@ -309,21 +377,19 @@ if Baseline_delineation_method == 1:
     stacked = np.dstack(slices)
     # outdata = np.full(indata.shape, np.nan)
     outdata = np.zeros(indata.shape, np.float32)
-    range1 = int((Moving_average_size - 1) / 2)  # don't use a name "range" because range will reuse in for loops
+
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Mean of empty slice")
-        outdata[range1:-range1, range1:-range1] = np.nanmean(stacked, 2)
+        outdata[MA_range:-MA_range, MA_range:-MA_range] = np.nanmean(stacked, 2)
 
-    outdata[0:range1, :] = NoData_value
-    outdata[-range1:rows, :] = NoData_value
-    outdata[:, 0:range1] = NoData_value
-    outdata[:, -range1:cols] = NoData_value
+    outdata[0:MA_range, :] = NoData_value
+    outdata[-MA_range:rows, :] = NoData_value
+    outdata[:, 0:MA_range] = NoData_value
+    outdata[:, -MA_range:cols] = NoData_value
     outdata_mod = np.where(np.isnan(outdata), NoData_value, outdata)  # Change np.nun to numeric value
 
     create_raster(Rasterdata, ResampleRasterMA, outdata_mod, NoData_value, data_type=gdal.GDT_Float32)
-
-    # Extract contour (Land (1): Water (0) isopleth)
 
     # Extract contour (Land (1): Water (0) isopleth)
     ResampleRasterdata = gdal.Open(ResampleRasterMA, GA_ReadOnly)
@@ -381,17 +447,17 @@ if Baseline_delineation_method == 1:
     Output_point = os.path.join(Outputspace, 'Contour_points.shp')
     points_along_lines(Max_length_contour, Output_point, Input_Distance_Transects, Process_folder)
 
-    gdf = createEW(Output_point, Process_folder)
-    gdf = moving_gdf(gdf, 31, 15, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
+    gdf = sort2polyline(Output_point, Process_folder,q) # modify on 04/15/24
+    gdf = moving_gdf(gdf, Moving_average_size, MA_range, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
 
     Smoothed_polyline = os.path.join(Outputspace, 'Smoothed_line_Contour.shp')  # output file name and location
     create_smoothed_polyline(gdf, Smoothed_polyline) # Create a LineString geometry from the smoothed points
 
     del gdf  # Close file
 
-    ##################################################################################################################
+    ####################################################################################################################
     # Method2 Baseline delineation based on a 1-way scan based on significant wave direction
-    ##################################################################################################################
+    ####################################################################################################################
 elif Baseline_delineation_method == 2:
     print("\tBaseline delineation based on a 1-way scan based on significant wave direction")
 
@@ -449,11 +515,14 @@ elif Baseline_delineation_method == 2:
     ### Compute coordinates of the points ###
     print("\tCompute and save coordinates of the points (x,y)")
 
-    x = np.zeros(cols)
-    y = np.zeros(cols)
+    if q == 12 or q == 34:
+        x = np.zeros(cols)
+        y = np.zeros(cols)
+    else:
+        x = np.zeros(rows)  # modify the bug 04/15/24
+        y = np.zeros(rows)
 
     if q == 12:
-
         for j in range(cols):
             x[j] = xOrigin + pixelWidth / 2 + fp[j, 0] * pixelWidth
             y[j] = yOrigin - (fp[j, 1]) * (-pixelHeight)  # pixel height is negative
@@ -493,40 +562,41 @@ elif Baseline_delineation_method == 2:
     intersect.crs = points.crs
     intersect.to_file(Output_point)
 
-    gdf = createEW(Output_point, Process_folder)
-    gdf = moving_gdf(gdf, 31, 15, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
+    gdf = sort2polyline(Output_point, Process_folder,q)
+    gdf = moving_gdf(gdf, Moving_average_size, MA_range, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
 
     Smoothed_polyline = os.path.join(Outputspace, 'Smoothed_line_W.shp')  # output file name and location
     create_smoothed_polyline(gdf, Smoothed_polyline) # Create a LineString geometry from the smoothed points
 
     del gdf, intersect  # Close file
 
-    ##################################################################################################################
+    ####################################################################################################################
     # Method3 Baseline delineation based on a manual input
-    ##################################################################################################################
+    ####################################################################################################################
 else:
     print("\tBaseline delineation based on a manual polyline")
     # Create manual line points
     Output_point = os.path.join(Outputspace, 'Manual_points.shp')
 
     points_along_lines(Manual_line, Output_point, Input_Distance_Transects, Process_folder)
-    gdf = createEW(Output_point, Process_folder)
-    gdf = moving_gdf(gdf, 31, 15, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
+    gdf = sort2polyline(Output_point, Process_folder,q)
+    gdf = moving_gdf(gdf, Moving_average_size, MA_range, Process_folder) # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
 
     Smoothed_polyline = os.path.join(Outputspace, 'Smoothed_line_Manual.shp')  # output file name and location
     create_smoothed_polyline(gdf,Smoothed_polyline) # Create a LineString geometry from the smoothed points
 
     del gdf # Close file
 
-###########################################################################################
+########################################################################################################################
 # Offset to offshore direction and Make a baseline
-###########################################################################################
+########################################################################################################################
 
 Offset_line_pre = os.path.join(Outputspace, 'Offset_Line_pre.shp')
+offset_cell = 3  # Default 30 cells
 
-Dist = (30 * ((abs(pixelWidth) + abs(pixelHeight)) / 2))  # 30* average cell size
+Dist = (offset_cell * ((abs(pixelWidth) + abs(pixelHeight)) / 2))  # 30* average cell size
 if q == 23 or q == 34:
-    Dist_offset = Dist # right side will be positive
+    Dist_offset = Dist # right side will be positive. For positive distance the offset will be at the left side of the input line. For a negative distance it will be at the right side. In general, this function tries to preserve the direction of the input.
 else:
     Dist_offset = -Dist
 
@@ -549,8 +619,8 @@ del gdf, max_length_gdf  # geopandas is still open or blocked to delete
 Baseline_pre_points=os.path.join(Outputspace,'Baseline_pre_points.shp')
 
 Output_point = points_along_lines(Baseline_pre, Baseline_pre_points, Input_Distance_Transects, Process_folder)
-gdf = createEW(Baseline_pre_points, Process_folder)
-gdf = moving_gdf(gdf, 31, 15, Process_folder)  # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
+gdf = sort2polyline(Baseline_pre_points, Process_folder,q)
+gdf = moving_gdf(gdf, Moving_average_size, MA_range, Process_folder)  # smooth the line moving_gdf(gdf,moving_value,transition points,target_folder)
 
 Baseline = os.path.join(Outputspace,'Baseline.shp')   # output file name and location
 create_smoothed_polyline(gdf, Baseline)  # Create a LineString geometry from the smoothed points
@@ -563,11 +633,11 @@ print('\tDone baseline')
 Baseline_points = os.path.join(Outputspace, 'Baseline_points.shp')
 Output_point = points_along_lines(Baseline, Baseline_points, Input_Distance_Transects, Process_folder)
 
-### Step 4 ###########################################################
+### Step 4 #############################################################################################################
 print("\n#############################################################\n")
 print("Step 4: Make transect")
 print("\n#############################################################\n")
-######################################################################
+########################################################################################################################
 ### 4.1 Compute coordinates of the mid/end points for two transects ###
 print("Step 4.1: Compute coordinates of the mid/end points for two transects")
 
@@ -645,8 +715,8 @@ df = pd.read_csv(csv_out)  # Read Azimuth.csv using pandas
 paths_a = ogr.Geometry(ogr.wkbMultiLineString)  # azimuth1 on the right side facing forward
 paths_b = ogr.Geometry(ogr.wkbMultiLineString)  # azimuth2 on the left side facing forward
 
-###### paths_a and paths_b are sensitively affected by Wave_direction_range ##########################################################################
-###### Users can switch the logical statement depending on the situations ###########################
+###### paths_a and paths_b are sensitively affected by Wave_direction_range ############################################
+###### Users can switch the logical statement depending on the situations ##############################################
 for i in range(df.shape[0]):
 
     # Calculate the upper and lower bounds of the range
@@ -664,7 +734,7 @@ for i in range(df.shape[0]):
         path_b.AddPoint(df.iloc[i, 0], df.iloc[i, 1])
         path_b.AddPoint(df.iloc[i, 8], df.iloc[i, 9])
         paths_b.AddGeometry(path_b)
-#######################################################################################################################################################
+########################################################################################################################
 
 # azimuth1 on the right side facing forward
 Transect_a = os.path.join(Outputspace, 'Transect_a.shp')
@@ -728,26 +798,34 @@ Output_point = points_along_lines(transect, Transect_points, Input_Spacing, Proc
 RV_transect_points = os.path.join(Outputspace, 'RV_transect_points.shp')
 gdf = extract_raster_value(Transect_points, Raster_file, RV_transect_points, 'Raster_val', NoData_value)
 
-### Step 5 ###########################################################
+### Step 5 #############################################################################################################
 print("\n#############################################################\n")
 print("Step 5: Calculate wave attenuation")
 print("\n#############################################################\n")
-######################################################################
+########################################################################################################################
 ### 5.1 Add decay constants ###
 print("Step 5.1: Add decay constants")
 
 # Read Raster values and deploy its associated decay constants in RV_transect_points.shp
-# Create a dictionary first
-marsh_decay_constants = {
-    class_val: decay_val
-    for class_val, decay_val in zip(Marsh_Class, Decay_Constant_M)
-}
-# print(marsh_decay_constants)
+if Inundation_flag:
+    # Extract the decay constant from the inundation raster
+    indices = gdf['Raster_val'].isin(Marsh_Class)
+    extract_point_values(decay_tiff, RV_transect_points,indices,no_decay_value)
+    # Open the shapefile
+    gdf = gpd.read_file(RV_transect_points)
+    gdf.loc[gdf['Raster_val'] == Input_Water_Class, 'DecayC'] = 0.0 # Set the decay constant for water to 0
+else:
+    # Create a dictionary first
+    marsh_decay_constants = {
+        class_val: decay_val
+        for class_val, decay_val in zip(Marsh_Class, Decay_Constant_M)
+    }
+    # print(marsh_decay_constants)
 
-# Determine  'DecayC' based on class values
-gdf['DecayC'] = 9999 # Set initial values to 9999
-gdf.loc[gdf['Raster_val'].isin(Marsh_Class), 'DecayC'] = gdf['Raster_val'].map(marsh_decay_constants)
-gdf.loc[gdf['Raster_val'] == Input_Water_Class, 'DecayC'] = 0.0
+    # Determine  'DecayC' based on class values
+    gdf['DecayC'] = no_decay_value # Set initial values to 9999
+    gdf.loc[gdf['Raster_val'].isin(Marsh_Class), 'DecayC'] = gdf['Raster_val'].map(marsh_decay_constants)
+    gdf.loc[gdf['Raster_val'] == Input_Water_Class, 'DecayC'] = 0.0
 
 ### 5.2 Calculate wave attenuation ###
 print("Step 5.2: Calculate wave attenuation")
@@ -769,7 +847,7 @@ for i in range(k_const.shape[0]):
     WT_pre = 1.
     for j in range(k_const.shape[1]):
         k = k_const[i, j]
-        if k == 9999:  # 9999 means land region and no water propagate downstream
+        if k == no_decay_value:  # 9999 means land region and no water propagate downstream
             break
         else:
             WT_Temp = WT_pre * np.exp(-k * int(float(Input_Spacing)))
@@ -861,7 +939,7 @@ print("Step 6: Interpolate points to create a raster")
 print("\n#############################################################\n")
 ######################################################################
 WT_raster_gdal = os.path.join(Outputspace, 'WT_raster.tif')
-print("\tEXtent is: ",extent)
+print("\tExtent is: ",extent)
 
 alg_setting = "invdist:power=2.0:smoothing=0.0:radius1=20*Input_Spacing:radius2=20*Input_Spacing:angle=0.0:max_points=12:min_points=2:nodata=0.0"
 idw = gdal.Grid(WT_raster_gdal, RV_transect_points_filter, format="GTiff",
