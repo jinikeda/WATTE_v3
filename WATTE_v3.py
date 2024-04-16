@@ -101,6 +101,7 @@ Inundation_flag = True
 Inundation_file = os.path.join(Inputspace, "Inundation_depth_TCB.tif")
 
 if Inundation_flag:
+    check_flag_file(Inundation_flag, Inundation_file)
     print("\tInundation file is set to be used")
     marsh_height = 0.25  # Assumption of vegetation (marsh) height [m]
     ndv = -99999  # No data value (ndv) using ADCIRC conversion
