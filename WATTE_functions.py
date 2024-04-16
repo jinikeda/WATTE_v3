@@ -413,6 +413,16 @@ def set_decay_values2tiff(Inun_level, bio_density, Input_Water_Class,Input_Other
 
     return decay_tiff_values
 
+
+def check_flag_file(flag_file, file_path):
+    if flag_file:
+        try:
+            assert os.path.exists(file_path), "\tPlease input the valid file path ...{{ (>_<) }}\n"
+        except:
+            print('Flag file is not found')
+    else:
+        print('Flag file is not set to be used')
+
 # def create_raster(file, reference_raster, z_array, dtype, no_data_value,stats_flag=False):
 #     # Create the output raster dataset
 #     gtiff_driver = gdal.GetDriverByName('GTiff')

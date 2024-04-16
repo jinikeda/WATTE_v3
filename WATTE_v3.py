@@ -98,31 +98,25 @@ assert 1 <= Baseline_delineation_method <= 3, "\tPlease input the values between
 
 # Swith to True if you want to use inundation file
 Inundation_flag = True
+Inundation_file = os.path.join(Inputspace, "Inundation_depth_TCB.tif")
 
 if Inundation_flag:
-    try:
-        Inundation_file = os.path.join(Inputspace, "Inundation_depth_TCB.tif")
-        assert os.path.exists(Inundation_file), "\tPlease input the valid file path ...{{ (>_<) }}\n"
-    except:
-        print('Inundation file is not found')
-else:
-    print('Inundation file is not set to be used')
+    print("\tInundation file is set to be used")
+    marsh_height = 0.25  # Assumption of vegetation (marsh) height [m]
+    ndv = -99999  # No data value (ndv) using ADCIRC conversion
 
-marsh_height = 0.25  # Assumption of vegetation (marsh) height [m]
-ndv = -99999  # No data value (ndv) using ADCIRC conversion
+    Inun_depth = read_raster_info(Inundation_file,1)
+    print ('Inundation depth \t',Inun_depth.min(),Inun_depth.max())
+    reference_raster = read_raster(Inundation_file,GA_ReadOnly)
 
-Inun_depth = read_raster_info(Inundation_file,1)
-print ('Inundation depth \t',Inun_depth.min(),Inun_depth.max())
-reference_raster = read_raster(Inundation_file,GA_ReadOnly)
+    min_depth = 1e-6  # Minimum depth for wave attenuation calculation [m]
+    Inun_depth = np.where(Inun_depth < min_depth, 0, Inun_depth)
+    Inun_level = np.where((0 < Inun_depth) & (marsh_height != 0), Inun_depth / marsh_height, ndv)
 
-min_depth = 1e-6  # Minimum depth for wave attenuation calculation [m]
-Inun_depth = np.where(Inun_depth < min_depth, 0, Inun_depth)
-Inun_level = np.where((0 < Inun_depth) & (marsh_height != 0), Inun_depth / marsh_height, ndv)
-
-# Output inundation level
-Raster_output = os.path.join(Outputspace, 'Inundation_level.tif')
-create_raster(reference_raster, Raster_output, Inun_level, ndv, data_type=gdal.GDT_Float32)
-print ('Inundation depth \t',Inun_depth.max(),'and level\t', Inun_level.max())
+    # Output inundation level
+    Raster_output = os.path.join(Outputspace, 'Inundation_level.tif')
+    create_raster(reference_raster, Raster_output, Inun_level, ndv, data_type=gdal.GDT_Float32)
+    print ('Inundation depth \t',Inun_depth.max(),'and level\t', Inun_level.max())
 
 ########################################################################################################################
 # Read marsh classifications
