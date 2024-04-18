@@ -11,6 +11,9 @@ dependencies:
   - rasterio
   - scipy
   - pip
- # - pip:
+  - pip:
+    - netCDF4
+    - h5netcdf
+    - xarray
  #         - lidario==0.3.0
  #         - osgeo==0.0.1

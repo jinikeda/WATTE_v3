@@ -1,14 +1,15 @@
-# Wave Attenuation Toolbox (WATTE) version 3.1
+# Wave Attenuation Toolbox (WATTE) version 3.2
 # Developed by Center for Computation & Technology and Coastal Ecosystem Design Studio at Louisiana State University (LSU).
 # WATTE version 1 was originally developed by M. Foster-Martinez, University of New Orleans: Karim Alizad, University of South Carolina: Scott C. Hagen, LSU (https://digitalcommons.lsu.edu/civil_engineering_data/1/)
 # WATTE version 2 was developed using Python3 and QGIS in 2023
 # Developer: Jin Ikeda, Shu Gao, Christopher E. Kees, and Peter Bacopoulos
-# Last modified 04/16/2024
+# Last modified 04/18/2024
 # Deepest thanks: This software is dedicated to in memory of Dr. Scott C. Hagen. We are truly blessed to have been one of your pupils. We will spread your idea further.
 #
 # WATTE version 3 is an open source-based toolbox using Python 3 (Verified at version Python 3.10).
 # This model estimates and maps wave attenuation along marsh coastlines following an exponential decay.
 # version 3.1: This version includes set decay constants from a combination of Inun_level and biomass_density classifications
+# version 3.2: This version includes local wave file (Delft3D output) and provides the wave height mapping
 #
 # This software is released under the MIT License, see LICENSE.txt.
 #
@@ -22,12 +23,6 @@ print("\n#############################################################\n")
 print("Step 1.1: Import modules")
 
 from WATTE_functions import *
-
-# import spatial analysis using Gdal
-from osgeo import gdal, ogr, osr
-from osgeo.gdalconst import *
-gdal.AllRegister()  # Register all of drivers
-import rasterio
 
 startTime = time.time()
 
@@ -48,14 +43,14 @@ os.chdir(Workspace)
 print("Step 1.2: Input parameters and file")
 
 # Dominant wave direction North True
-Wave_direction = float(300)  # North is 0 [degree] and clockwise
+Wave_direction = float(150)  # North is 0 [degree] and clockwise
 Wave_direction_range = 179  # Criterion for consider transects
 # Note: Wave_direction = float(input("Dominant wave direction in North True: [degree] between 0-360 type here->"))
 assert 0 <= Wave_direction < 360, "\tPlease input the values between 0-360 degree ...{{ (>_<) }}\n"
 
 # Input raster data
 Inputspace = os.path.join(Workspace, "Input_data")
-Raster_file = os.path.join(Inputspace, "Productivity_TCB.tif")
+Raster_file = os.path.join(Inputspace, "Productivity_GB_100.tif")
 
 # Make process folder
 Process_folder = os.path.join(Workspace, 'Process')
@@ -75,30 +70,39 @@ os.makedirs(Outputspace, exist_ok=True)
 
 # Here polyline is estimated to draw from left side to right side, which may affect offset direction (use E2W function)
 
-Baseline_delineation_method = 2
+Baseline_delineation_method = 1
 Manual_line = os.path.join(Inputspace, "Polyline.shp")
 assert 1 <= Baseline_delineation_method <= 3, "\tPlease input the values between 1-3 ...{{ (>_<) }}\n"
 
 ########################################################################################################################
 # Calculate inundation depth when Inundation_flag is True
 ########################################################################################################################
+# Considering use parser or not
 # import argparse, sys
 # def main(argv):
 #     parser = argparse.ArgumentParser(description='Reading inundation depth') # Create the parser
-#     parser.add_argument("--inundationFile", type=str,default=None, help="Path to inundation file <*.tif>")
+#     parser.add_argument("--inundationDepthFile", type=str, default=None, help="Path to inundation depth file <*.tif>")
+#     parser.add_argument("--waveFile", type=str, default=None, help="Path to wave file")
+#     # parser.add_argument("--inundationFlag", type=bool, default=False, help="Flag to use inundation file")
+#     #parser.add_argument("--localWavefileFlag", type=bool, default=False, help="Flag to use local wave file")
 #     args = parser.parse_args(argv) # Parse the arguments
 #
 #     print('Inundation file:', args.inundationFile)
+#     print('Inundation flag:', args.inundationFlag)
+#     print('Local wavefile flag:', args.localWavefileFlag)
+#     print('Wave file:', args.waveFile)
 #
-#     return args.inundationFile
+#     return args.inundationFile, args.waveFile
 #
 # if __name__ == "__main__":
 #     main(sys.argv[1:])
-#     print('Find inundation file')
+#     print('Run WATTET')
 
-# Swith to True if you want to use inundation file
-Inundation_flag = True
+# Switch to True if you want to use inundation file
+Inundation_flag = False
 Inundation_file = os.path.join(Inputspace, "Inundation_depth_TCB.tif")
+Local_wavefile_flag = False
+Wave_file = os.path.join(Inputspace, "bin16_SL0_R0_timeAvgData.nc") # Local wave file based on Delft3D output but not actual format
 
 if Inundation_flag:
     check_flag_file(Inundation_flag, Inundation_file)
@@ -115,7 +119,7 @@ if Inundation_flag:
     Inun_level = np.where((0 < Inun_depth) & (marsh_height != 0), Inun_depth / marsh_height, ndv)
 
     # Output inundation level
-    Raster_output = os.path.join(Outputspace, 'Inundation_level.tif')
+    Raster_output = os.path.join(Outputspace, "Inundation_level.tif")
     create_raster(reference_raster, Raster_output, Inun_level, ndv, data_type=gdal.GDT_Float32)
     print ('Inundation depth \t',Inun_depth.max(),'and level\t', Inun_level.max())
 
@@ -201,6 +205,9 @@ print("\tReading raster file (georeference, etc)")
 # Coordinate system
 prj = Rasterdata.GetProjection()  # Read projection
 print("\tProjection:", prj)
+EPSG_code = get_epsg_code(prj)
+EPSG = "EPSG:"+EPSG_code
+print("\tProjection's ESPG:", EPSG)
 
 # Get raster size and band
 rows = Rasterdata.RasterYSize  # number of rows
@@ -215,6 +222,7 @@ xOrigin = transform[0]  # Upperleft x
 yOrigin = transform[3]  # Upperleft y
 pixelWidth = transform[1]  # cell size x
 pixelHeight = transform[5]  # cell size y (value is negative)
+
 print("\txOrigin=", xOrigin, "m", "yOrigin=", yOrigin, "m")
 print("\tpixelWidth=", pixelWidth, "m", "pixelHeight=", -pixelHeight, "m")  # pixelHeight is always negative
 
@@ -340,7 +348,7 @@ print("\n#############################################################\n")
 print("Step 3: Make a baseline")
 print("\n#############################################################\n")
 
-### 3.1 Baseline delineation #######
+### 3.1 Baseline delineation ###########################################################################################
 
 # Method 1 Land (1): Water (0) isopleth with a moving average method
 # Method 2 1-way scan based on significant wave direction
@@ -789,9 +797,45 @@ else:
 Transect_points = os.path.join(Outputspace, 'Transect_points.shp')
 Output_point = points_along_lines(transect, Transect_points, Input_Spacing, Process_folder)
 
-# Copy the raster values
-RV_transect_points = os.path.join(Outputspace, 'RV_transect_points.shp')
-gdf = extract_raster_value(Transect_points, Raster_file, RV_transect_points, 'Raster_val', NoData_value)
+########################################################################################################################
+### Get wave data from the local wave file ###
+########################################################################################################################
+if Local_wavefile_flag:
+
+    # Make a buffer around the baseline
+    buffer_cells = 3 # Default 10 cells
+
+    buffer_distance = buffer_cells * abs(pixelWidth)
+    buffer_shp_file = os.path.join(Outputspace, 'buffer_baseline.shp')
+    create_buffer(Baseline, buffer_shp_file, buffer_distance) # Create a buffer (polygon) around the baseline
+    output_shp_file = os.path.join(Outputspace, 'delft3d_wave_buffer_points.shp')
+
+    filter_gdf = process_local_wave_file(Wave_file, output_shp_file, buffer_shp_file, EPSG) # Only select wave data within the buffer
+
+
+    # Additional filter to avoid selecting on land wave data
+    wave_file_filter = output_shp_file.replace('.shp', '_filter.shp')
+    gdf_filter = filter_wave_data(filter_gdf, wave_file_filter)  # Filter wave data only Hs is not 0
+
+    ####################################################################################################################
+    ### Add wave data to the basepoint in the transect points file ###
+    ####################################################################################################################
+
+    Nearest_wave_points = os.path.join(Outputspace, 'Wave_nearest_points.shp') # Process file distance and index
+    Wave_transect_points = os.path.join(Outputspace, 'Wave_transect_points.shp') # Output file
+    scale_factor = 1. # Scale factor for the distance
+
+    add_wave_climate2transect_points(Transect_points, wave_file_filter, Wave_transect_points, Nearest_wave_points,
+                                     no_decay_value, scale_factor, leafsize=10)
+
+    # Copy the raster values
+    RV_transect_points: str = os.path.join(Outputspace, 'RV_transect_points.shp')
+    gdf = extract_raster_value(Wave_transect_points, Raster_file, RV_transect_points, 'Raster_val', NoData_value)
+
+else:
+    # Copy the raster values
+    RV_transect_points = os.path.join(Outputspace, 'RV_transect_points.shp')
+    gdf = extract_raster_value(Transect_points, Raster_file, RV_transect_points, 'Raster_val', NoData_value)
 
 ### Step 5 #############################################################################################################
 print("\n#############################################################\n")
@@ -834,12 +878,25 @@ k_const = np.reshape(DC, (n_transect, NP))  # n_transect: number of transect, NP
 csv_out = os.path.join(Process_folder, 'Decay_Const.csv')
 np.savetxt(csv_out, k_const, delimiter=',')
 
-#WT = np.zeros((k_const.shape[0], k_const.shape[1]), 'd')  # output double
 WT = np.full_like(k_const, np.nan, dtype=float)
-##### probably np.nan should be better. Future modifications ######
+
+########################################################################################################################
+### Consider wave refraction based on the wave and transect direction ###
+########################################################################################################################
+
+if Local_wavefile_flag:
+
+    csv_out = os.path.join(Process_folder, 'check_dir_diff.csv')
+    Hs_modify = calculate_wave_refraction(gdf,n_transect, NP, csv_out)
+
+    # Initialize the wave height on marshes
+    Hs_marsh = np.full_like(k_const, np.nan, dtype=float)
+
 
 for i in range(k_const.shape[0]):
     WT_pre = 1.
+    if Local_wavefile_flag:
+        Hs_marsh_base = Hs_modify[i]
     for j in range(k_const.shape[1]):
         k = k_const[i, j]
         if k == no_decay_value:  # 9999 means land region and no water propagate downstream
@@ -847,6 +904,8 @@ for i in range(k_const.shape[0]):
         else:
             WT_Temp = WT_pre * np.exp(-k * int(float(Input_Spacing)))
             WT[i, j] = WT_Temp
+            if Local_wavefile_flag:
+                Hs_marsh[i, j] = Hs_marsh_base * WT [i, j] # modify the Hs value based on the angle difference
             WT_pre = WT_Temp
             if WT_pre < Input_Wave_Attenuation_Threshold: # no more calculation
                 break
@@ -862,6 +921,10 @@ WT_reshape = WT.flatten()
 
 try:
     gdf['WT'] = WT_reshape
+    if Local_wavefile_flag:
+        Hs_marsh_reshape = Hs_marsh.flatten()
+        gdf['Hs_marsh'] = Hs_marsh_reshape
+
 except:
   print("The size does not matched Check the calculation")
 
@@ -928,32 +991,58 @@ RV_transect_points_filter = os.path.join(Outputspace, 'RV_transect_points_filter
 # Save the DataFrame as a CSV file
 gdf3.to_file(RV_transect_points_filter)
 
+if Local_wavefile_flag:
+    gdf2_Hs = gdf.sort_values(by=['FishnetID_', 'Hs_marsh'], ascending=False).groupby('FishnetID_').head(
+        1)  # only select maximum value
+    gdf3_Hs = gdf2_Hs.dropna(subset=['Hs_marsh']).sort_values(by=['id', 'distance'],
+                                                              ascending=True)  # drop NaN value and resorted again.
+    RV_transect_points_filter_Hs = os.path.join(Outputspace, 'RV_transect_points_filtered_Hs.shp')  # output file name and location
+    gdf3_Hs.to_file(RV_transect_points_filter_Hs)
+
 ### Step 6 ###########################################################
 print("\n#############################################################\n")
 print("Step 6: Interpolate points to create a raster")
 print("\n#############################################################\n")
 ######################################################################
-WT_raster_gdal = os.path.join(Outputspace, 'WT_raster.tif')
+# Create a raster file from the points are computationally expensive. So, only either Hs or WT are created.
+# IDW setting
+alg_setting = "invdist:power=2.0:smoothing=0.0:radius1=20*Input_Spacing:radius2=20*Input_Spacing:angle=0.0:max_points=12:min_points=2:nodata=0.0"
 print("\tExtent is: ",extent)
 
-alg_setting = "invdist:power=2.0:smoothing=0.0:radius1=20*Input_Spacing:radius2=20*Input_Spacing:angle=0.0:max_points=12:min_points=2:nodata=0.0"
-idw = gdal.Grid(WT_raster_gdal, RV_transect_points_filter, format="GTiff",
-                outputBounds=[extent[0], extent[3], extent[0] + spacing * col_num, extent[3] - spacing * row_num],
-                outputSRS=prj, width=col_num, height=row_num, outputType=gdal.GDT_Float32, algorithm=alg_setting,
-                zfield='WT')
+if Local_wavefile_flag:
+    Hs_raster_gdal = os.path.join(Outputspace, 'Hs_raster.tif')
+    idw = gdal.Grid(Hs_raster_gdal, RV_transect_points_filter_Hs, format="GTiff",
+                    outputBounds=[extent[0], extent[3], extent[0] + spacing * col_num, extent[3] - spacing * row_num],
+                    outputSRS=prj, width=col_num, height=row_num, outputType=gdal.GDT_Float32, algorithm=alg_setting,
+                    zfield='Hs_marsh')
+else:
+    WT_raster_gdal = os.path.join(Outputspace, 'WT_raster.tif')
+    idw = gdal.Grid(WT_raster_gdal, RV_transect_points_filter, format="GTiff",
+                    outputBounds=[extent[0], extent[3], extent[0] + spacing * col_num, extent[3] - spacing * row_num],
+                    outputSRS=prj, width=col_num, height=row_num, outputType=gdal.GDT_Float32, algorithm=alg_setting,
+                    zfield='WT')
+
 # caution for the assigned output bounds: [ulx, uly, lrx, lry]
 print ("Spatial interpolation is done.")
 del idw  # Close file
 
-# Extract IDW data only land regions.
-Output_raster = os.path.join(Outputspace,'WT_raster_extracted.tif')
 
-Input_raster = gdal.Open(WT_raster_gdal, 0)
+# Extract IDW data only land regions.
+
 dst_ds = read_vector(Output_Land_Polygon, 0)  # 0 means read-only. 1 means writeable.
 layer = dst_ds.GetLayer()
 
-out_ds = gdal.Warp(Output_raster, WT_raster_gdal, cutlineDSName=Output_Land_Polygon, cropToCutline=True,
-                   dstNodata=np.nan)
+if Local_wavefile_flag:
+    Output_raster = os.path.join(Outputspace, 'Hs_raster_extracted.tif')
+    Input_raster = gdal.Open(Hs_raster_gdal, 0)
+    out_ds = gdal.Warp(Output_raster, Hs_raster_gdal, cutlineDSName=Output_Land_Polygon, cropToCutline=True,
+                       dstNodata=np.nan)
+else:
+    Output_raster = os.path.join(Outputspace, 'WT_raster_extracted.tif')
+    Input_raster = gdal.Open(WT_raster_gdal, 0)
+    out_ds = gdal.Warp(Output_raster, WT_raster_gdal, cutlineDSName=Output_Land_Polygon, cropToCutline=True,
+                       dstNodata=np.nan)
+
 out_ds.SetProjection(prj)
 band = out_ds.GetRasterBand(1)
 band.GetMetadata()

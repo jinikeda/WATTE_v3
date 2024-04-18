@@ -6,13 +6,17 @@ import csv
 import warnings
 import geopandas as gpd
 from shapely.geometry import LineString
+from shapely.geometry import Point
 import glob
 import time
+import xarray as xr
+from scipy.spatial import cKDTree as KDTree
 
 # import spatial analysis using Gdal
 from osgeo import gdal, ogr, osr
 from osgeo.gdalconst import *
 gdal.AllRegister()  # Register all of drivers
+gdal.UseExceptions()  # Enable exceptions
 import rasterio
 
 # Function of output x, y coordinates
@@ -257,6 +261,24 @@ def offset_polyline(in_shp, out_shp, dist_offset, join_style):  # join_style: 1 
 
     return out_shp
 
+# Function to create a buffer around a polyline
+def get_extent(shapefile_path):
+    gdf = gpd.read_file(shapefile_path)
+    minx, miny, maxx, maxy = gdf.geometry.total_bounds
+    return minx, miny, maxx, maxy
+
+
+def create_buffer(shapefile_path, output_file_path, distance):
+    # Read the shapefile
+    gdf = gpd.read_file(shapefile_path)
+
+    # Create a buffer around the geometry
+    gdf['geometry'] = gdf['geometry'].buffer(distance) # Ensure the geometry is a LineString
+
+    # Save the GeoDataFrame with the buffered geometry to a new shapefile
+    gdf.to_file(output_file_path, driver='ESRI Shapefile')
+
+
 # Function to create raster file using gdal
 def create_raster(Rasterdata, Raster_output, data_array, NoData_value, data_type=gdal.GDT_Float32):
 
@@ -323,6 +345,12 @@ def read_raster_info(raster_file, band_num, read_info = False): # Future modify 
         return band_values
 
 
+def get_epsg_code(prj):
+    projection = osr.SpatialReference(wkt=prj) # Read projection here prj = raster.GetProjection()
+    EPSG_code = projection.GetAttrValue('AUTHORITY', 1)  # Get the EPSG code
+    return EPSG_code
+
+
 def read_vector(Vectordata, GA_stype): #GA_ReadOnly (0) or GA_Update(1)
     Read_vector = ogr.Open(Vectordata, GA_stype)
     if Vectordata is None:
@@ -371,7 +399,7 @@ def set_decay_values2tiff(Inun_level, bio_density, Input_Water_Class,Input_Other
 
     # Still Considering use Marsh_Class instead of 16, 23, 32. Here, 16 is low, 23 is medium, 32 is high
 
-    print("\n#############################################################")
+    print("\n#############################################################\n")
     print("Set dacay constant values to tiff file using inundation level and marsh density")
     print("\n#############################################################")
 
@@ -413,7 +441,6 @@ def set_decay_values2tiff(Inun_level, bio_density, Input_Water_Class,Input_Other
 
     return decay_tiff_values
 
-
 def check_flag_file(flag_file, file_path):
     if flag_file:
         try:
@@ -422,6 +449,249 @@ def check_flag_file(flag_file, file_path):
             print('Flag file is not found')
     else:
         print('Flag file is not set to be used')
+
+def process_local_wave_file(local_wave_file, output_shp_file,buffer_file, ESPG): # 'EPSG:26916'
+    with xr.open_dataset(local_wave_file) as ds:
+        print ('reading the local wave file')
+
+    print (ds.info())
+
+    grid_x_values = ds['grid_x'].values # longitude
+    grid_y_values = ds['grid_y'].values # latitude
+    grid_Hs_values = ds['Hs'].values # significant wave height
+    grid_Tp_values = ds['Tp'].values.astype('float64')/(1e+9) # peak period
+    grid_Dir_values = ds['Dir'].values # wave direction
+
+    grid_Hs_min, grid_Hs_max, grid_Hs_mean, grid_Hs_median, grid_Hs_std = calculate_array_stats(grid_Hs_values)
+    grid_Tp_min, grid_Tp_max, grid_Tp_mean, grid_Tp_median,grid_Tp_std = calculate_array_stats(grid_Tp_values)
+    grid_Dir_min, grid_Dir_max, grid_Dir_mean, grid_Dir_median, grid_Dir_std = calculate_array_stats(grid_Dir_values)
+
+    print(f"Significant Wave Height: Min={grid_Hs_min}, Max={grid_Hs_max}, Mean={grid_Hs_mean}, Median={grid_Hs_median}, Std={grid_Hs_std}")
+    print(f"Peak Period: Min={grid_Tp_min}, Max={grid_Tp_max}, Mean={grid_Tp_mean},Median={grid_Tp_median}, Std={grid_Tp_std}")
+    print(f"Wave Direction: Min={grid_Dir_min}, Max={grid_Dir_max}, Mean={grid_Dir_mean},Median={grid_Dir_median}, Std={grid_Dir_std}")
+
+    df = pd.DataFrame({
+        'x': grid_x_values.flatten(),
+        'y': grid_y_values.flatten(),
+        'Hs': grid_Hs_values.flatten(),
+        'Tp': grid_Tp_values.flatten(),
+        'Dir': grid_Dir_values.flatten()
+    })
+
+
+    # Create a GeoDataFrame with the points
+    geometry = [Point(xy) for xy in zip(df['x'], df['y'])]
+    gdf = gpd.GeoDataFrame(df, geometry=geometry)
+    gdf = gdf.set_crs(ESPG)
+
+    # Perform a spatial join between the points and the polygon
+    gdf_buffer = gpd.read_file(buffer_file)
+    filter_gdf = gpd.sjoin(gdf, gdf_buffer, predicate='within')
+    filter_gdf.drop(['index_right', 'ID'], axis=1, inplace=True, errors='ignore') # The dropped columns may differ depending on the input shapefile
+    filter_gdf = filter_gdf.reset_index(drop=True)
+
+    print(f"Output file: {output_shp_file}")
+    filter_gdf.to_file(output_shp_file)
+
+    del ds
+
+    return filter_gdf
+
+# internal function of process_local_wave_file
+def calculate_array_stats(array):
+    min_value = np.min(array)
+    max_value = np.max(array)
+    mean_value = np.mean(array)
+    median_value = np.median(array)
+    std_value = np.std(array)
+
+    return min_value, max_value, mean_value, median_value, std_value
+
+def add_wave_climate2transect_points(Transect_points_file,wave_shp_file,out_shp_file, nearest_wave_file, no_decay_value,   scale_factor, leafsize=10):
+    gdf = gpd.read_file(Transect_points_file)
+    gdf['Hs'] = float(no_decay_value)
+    gdf['Dir'] = float(no_decay_value)
+    gdf['Tp'] = float(no_decay_value)
+    base_index = gdf[gdf['distance'].values == 0].index
+    gdf_xy_point = gdf.loc[base_index, ['x', 'y', 'geometry']]
+
+    Wave_base_gdf = get_nearest_variable_index(gdf_xy_point, wave_shp_file, nearest_wave_file, 'd3d', scale_factor, leafsize=10, xy_list=['x', 'y'])
+
+    gdf.loc[base_index, 'Hs'] = Wave_base_gdf['Hs'].values
+    gdf.loc[base_index, 'Dir'] = (Wave_base_gdf['Dir'].values + 180) % 360 # use same direction as the wave file (convert)
+    gdf.loc[base_index, 'Tp'] = Wave_base_gdf['Tp'].values
+
+
+    gdf.to_file(out_shp_file)
+
+
+# Function to pick the index of the nearest variable point
+def get_nearest_variable_index(target_gdf, reference_shp, new_shp, str_variable, scale_factor, leafsize=10, xy_list=['x', 'y']):
+
+    # Read the shapefiles
+    reference_gdf = gpd.read_file(reference_shp)
+
+    # Use a projected system
+    xy_reference = reference_gdf[xy_list].to_numpy()
+    xy_reference = xy_reference / scale_factor
+
+    xy_target = target_gdf[xy_list].to_numpy()
+    xy_target = xy_target / scale_factor
+
+    dist_tree = KDTree(xy_reference, leafsize=leafsize)
+    dist, ix = dist_tree.query(xy_target, 1)  # find the nearest neighbor for each point
+
+
+    new_gdf = target_gdf.copy()
+    new_gdf[str_variable + '_dis'] = dist
+    new_gdf[str_variable + '_index'] = ix
+    new_gdf['Hs'] = reference_gdf['Hs'].iloc[ix].values
+    new_gdf['Dir'] = reference_gdf['Dir'].iloc[ix].values
+    new_gdf['Tp'] = reference_gdf['Tp'].iloc[ix].values
+
+    new_gdf.to_file(new_shp)
+
+    return new_gdf
+
+# function for filtering (reliable) wave data
+def filter_wave_data(gdf, output_shp_file):
+    # Read the shapefile into a GeoDataFrame
+    #gdf = gpd.read_file(wave_shp_file)
+    print('Before filtering: \t gdf.shape', gdf.shape)
+
+    # Get the indices of the rows where 'Hs' is not 0
+    indices = gdf[gdf['Hs'] != 0.0].index
+
+    # Select specific columns
+    columns = ['x','y','Hs', 'Dir', 'Tp','geometry'] # This part may need to be modified depending on the input shapefile
+    gdf_filter = gdf.loc[indices, columns]
+
+    print('After filtering: \t gdf.shape', gdf_filter.shape)
+    gdf_filter.to_file(output_shp_file)
+
+    return gdf_filter
+
+
+def calculate_wave_refraction(gdf, n_transect, NP, check_diff_file):
+    # Convert to list and then to numpy array
+    Hs_base = np.array(gdf['Hs'].tolist())
+    Hs_dir_base = np.array(gdf['Dir'].tolist())
+    Transect_ang = np.array(gdf['angle'].tolist())
+
+    # Reshape to calculate the wave attenuation value on each transect
+    Hs_transect = np.reshape(Hs_base, (n_transect, NP))
+    Hs_dir_transect = np.reshape(Hs_dir_base, (n_transect, NP))
+    Transect_ang = np.reshape(Transect_ang, (n_transect, NP))
+
+    # Calculate the difference between the first column of Hs_dir_transect and Transect_ang for each row
+    Hs_transect_base = Hs_transect[:, 0]
+
+    # Calculate the absolute difference
+    raw_diff = np.abs(Hs_dir_transect[:, 0] - Transect_ang[:, 0])
+
+    # Use modulo operator to handle the wrap-around at 360 degrees
+    difference = np.where(raw_diff > 180, 360 - raw_diff, raw_diff)
+    cos_diff = np.cos(difference * np.pi / 180)
+
+    # If the angle difference is greater than 90 degrees, set the wave height to zero
+    Hs_modify = np.where(cos_diff < 0, 0, Hs_transect_base * cos_diff)
+
+    # Save the difference to a CSV file
+    np.savetxt(check_diff_file, difference, delimiter=',')
+
+    return Hs_modify
+
+
+
+## use the class method. remove function as its slower
+class Invdisttree:
+
+    """ inverse-distance-weighted interpolation using KDTree:
+invdisttree = Invdisttree( X, z )  -- data points, values
+interpol = invdisttree( q, nnear=3, eps=0, p=1, weights=None, stat=0 )
+    interpolates z from the 3 points nearest each query point q;
+    For example, interpol[ a query point q ]
+    finds the 3 data points nearest q, at distances d1 d2 d3
+    and returns the IDW average of the values z1 z2 z3
+        (z1/d1 + z2/d2 + z3/d3)
+        / (1/d1 + 1/d2 + 1/d3)
+        = .55 z1 + .27 z2 + .18 z3  for distances 1 2 3
+    q may be one point, or a batch of points.
+    eps: approximate nearest, dist <= (1 + eps) * true nearest
+    p: use 1 / distance**p
+    weights: optional multipliers for 1 / distance**p, of the same shape as q
+    stat: accumulate wsum, wn for average weights
+How many nearest neighbors should one take ?
+a) start with 8 11 14 .. 28 in 2d 3d 4d .. 10d; see Wendel's formula
+b) make 3 runs with nnear= e.g. 6 8 10, and look at the results --
+    |interpol 6 - interpol 8| etc., or |f - interpol*| if you have f(q).
+    I find that runtimes don't increase much at all with nnear -- ymmv.
+p=1, p=2 ?
+    p=2 weights nearer points more, farther points less.
+    In 2d, the circles around query points have areas ~ distance**2,
+    so p=2 is inverse-area weighting. For example,
+        (z1/area1 + z2/area2 + z3/area3)
+        / (1/area1 + 1/area2 + 1/area3)
+        = .74 z1 + .18 z2 + .08 z3  for distances 1 2 3
+    Similarly, in 3d, p=3 is inverse-volume weighting.
+Scaling:
+    if different X coordinates measure different things, Euclidean distance
+    can be way off.  For example, if X0 is in the range 0 to 1
+    but X1 0 to 1000, the X1 distances will swamp X0;
+    rescale the data, i.e. make X0.std() ~= X1.std() .
+A nice property of IDW is that it's scale-free around query points:
+if I have values z1 z2 z3 from 3 points at distances d1 d2 d3,
+the IDW average
+    (z1/d1 + z2/d2 + z3/d3)
+    / (1/d1 + 1/d2 + 1/d3)
+is the same for distances 1 2 3, or 10 20 30 -- only the ratios matter.
+In contrast, the commonly-used Gaussian kernel exp( - (distance/h)**2 )
+is exceedingly sensitive to distance and to h.
+    """
+
+#leafsize: The number of points at which the algorithm switches over to brute-force. Default: 10.
+
+    def __init__(self, X, z, leafsize=10, stat=0): # scale=scaling factor for distances
+        assert len(X) == len(z), "len(X) %d != len(z) %d" % (len(X), len(z))
+        self.tree = KDTree(X, leafsize=leafsize)  # build the tree
+        self.z = z
+        self.stat = stat
+        self.wn = 0
+        self.wsum = None;
+
+    def __call__(self, q, nnear=6, eps=0, p=1, weights=None):
+            # nnear nearest neighbours of each query point --
+        q = np.asarray(q)
+        qdim = q.ndim
+        if qdim == 1:
+            q = np.array([q])
+        if self.wsum is None:
+            self.wsum = np.zeros(nnear)
+
+        self.distances, self.ix = self.tree.query( q, k=nnear, eps=eps ) #scipy.spatial.KDTree.query
+        interpol = np.zeros((len(self.distances),) + np.shape(self.z[0]))
+        weight_factors = []  # list to store weight factors
+        jinterpol = 0
+        for dist, ix in zip(self.distances, self.ix):
+            if nnear == 1:
+                weight_factors.append(1.0)
+                wz = self.z[ix]
+            elif dist[0] < 1e-10:
+                wz = self.z[ix[0]]
+            else:  # weight z s by 1/dist --
+                w = 1 / dist ** p
+                if weights is not None:
+                    w *= weights[ix]  # >= 0
+                w /= np.sum(w)
+                weight_factors.append(w)  # store the weight factors for each query point
+                wz = np.dot(w, self.z[ix])
+                if self.stat:
+                    self.wn += 1
+                    self.wsum += w
+            interpol[jinterpol] = wz
+            jinterpol += 1
+        #return interpol, dist if qdim > 1 else interpol[0]
+        return interpol, weight_factors if qdim > 1 else interpol[0]
 
 # def create_raster(file, reference_raster, z_array, dtype, no_data_value,stats_flag=False):
 #     # Create the output raster dataset
