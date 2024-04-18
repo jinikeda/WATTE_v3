@@ -1,4 +1,4 @@
-# WATTE (Wave ATTEnuation Model) ver3.1: Last updates on April 16th, 2024
+# WATTE (Wave ATTEnuation Model) ver3.2: Last updates on April 18th, 2024
 
 ### § 1. WATTE toolbox
 WATTE is a one-dimensional model based on an exponential decay formula for marsh coastlines. The functional basis of WATTE is wave energy dissipation by vegetation: 
@@ -29,6 +29,7 @@ It estimates and maps wave attenuation along marsh coastlines following an expon
 
 ver3.0: Release Fall 2023
 ver3.1: Add the command of set decay constants from a combination of Inun_level and biomass_density classifications, Spring 2024
+ver3.2: Add the command of local wave evaluation from a Delft3d file, Spring 2024
 
 **Developer: Jin Ikeda, Shu Gao, Christopher E. Kees, and Peter Bacopoulos**
 
