@@ -5,7 +5,7 @@ import pandas as pd
 import csv
 import warnings
 import geopandas as gpd
-from shapely.geometry import LineString
+from shapely.geometry import LineString, MultiLineString
 from shapely.geometry import Point
 import glob
 import time
@@ -98,6 +98,21 @@ def create_smoothed_polyline(gdf,out_shp):
     smoothed_gdf.to_file(out_shp)
 
     del smoothed_gdf
+
+# Function to get the longest length of a LineString
+def get_max_length_row(gdf):
+    gdf = gdf.sort_values('Length', ascending=False)
+
+    if not gdf.empty:
+        max_length_gdf = gdf.iloc[[0]]  # Select the first row (the maximum Length value)
+    else:
+        print("The DataFrame 'gdf' is empty.")
+        return None
+
+    # Create a new GeoDataFrame with only the selected row
+    max_length_gdf = gpd.GeoDataFrame(max_length_gdf, geometry='geometry', crs=gdf.crs)
+
+    return max_length_gdf
 
 
 # Function to extract point values using a raster file
@@ -260,6 +275,76 @@ def offset_polyline(in_shp, out_shp, dist_offset, join_style):  # join_style: 1 
     offset_gdf.to_file(out_shp)
 
     return out_shp
+
+def MultiLineString2LineString(shapefile_path, number_cells,raster_size): # number_cells: 10, cell_size:
+    # Open the shapefile
+    gdf = gpd.read_file(shapefile_path)
+    crs = gdf.crs
+
+
+    # Iterate over each geometry in the GeoSeries
+    for geometry in gdf.geometry:
+        # Check if the geometry is a MultiLineString
+        if isinstance(geometry, MultiLineString):
+            # Iterate over each LineString in the MultiLineString
+
+            x_coords = []    # Initialize empty lists for the x and y coordinates
+            y_coords = []
+            for line in geometry.geoms:
+                # Iterate over the coordinates of the line
+                for x, y in line.coords:
+                    # Add the coordinates to the respective lists
+                    x_coords.append(x)
+                    y_coords.append(y)
+
+            # Calculate the Euclidean distance between the points
+            distances = [np.sqrt((x_coords[i + 1] - x_coords[i]) ** 2 + (y_coords[i + 1] - y_coords[i]) ** 2) for i
+                         in range(len(x_coords) - 1)]
+            x_coords = np.array(x_coords)
+            y_coords = np.array(y_coords)
+
+            # Sort the distances in descending order and select the top 10
+            top_10_distances = np.sort(distances)[-10:]
+            print("Top 10 MultiLineString distances:", top_10_distances)  # to split the line
+            np.savetxt('top_10_distances.txt', top_10_distances, fmt='%f')
+
+            # Find the indices exceeding the threshold
+            threshold = number_cells * raster_size
+
+            # Convert distances to a numpy array
+            distances = np.array(distances)
+            # Find the indices exceeding the threshold
+            indices = np.where(distances > threshold)[0]
+            print("Indices exceeding the threshold:", indices)
+
+            # Initialize an empty list for the lines
+            lines = []
+
+            # Iterate over the indices
+            for num, i in enumerate(indices):
+                if num == 0:
+                    # Create a LineString from the x and y coordinates
+                    line = LineString(zip(x_coords[:i + 1], y_coords[:i + 1]))
+                    lines.append(line)
+                else:
+                    line = LineString(
+                        zip(x_coords[indices[num - 1] + 1:i + 1], y_coords[indices[num - 1] + 1:i + 1]))
+                    lines.append(line)
+
+            # Create a GeoDataFrame from the LineStrings
+            gdf = gpd.GeoDataFrame({"ID": range(len(lines))}, geometry=lines, crs=crs)
+            gdf['Length'] = gdf.length
+
+        else:
+            # # The geometry is not a MultiLineString, so we can proceed as before
+            # for x, y in geometry.coords:
+            #     # Add the coordinates to the respective lists
+            #     x_coords.append(x)
+            #     y_coords.append(y)
+            pass
+
+    return gdf
+
 
 # Function to create a buffer around a polyline
 def get_extent(shapefile_path):

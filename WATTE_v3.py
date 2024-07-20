@@ -158,6 +158,9 @@ Input_Spacing = 10  # dx = (x_i+1−x_i)
 
 no_decay_value = 9999  # No decay value
 
+Moving_average_size = 21  # For smoothing purpose. User freely change the window size (odd number only)
+offset_cell = 20  # Default 30 cells
+
 ########################### Messages ###################################################################################
 print("\tDominant wave direction: ", Wave_direction, "[degree]")
 print("\tInput raster dataset is " + Raster_file)
@@ -354,7 +357,6 @@ print("\n#############################################################\n")
 # Method 2 1-way scan based on significant wave direction
 # Method 3 Baseline delineation based on a manual polyline
 ########################################################################################################################
-Moving_average_size = 3  # User freely change the window size
 MA_range = int((Moving_average_size - 1) / 2)  # don't use a name "range" because range will reuse in for loops
 
 if Baseline_delineation_method == 1:
@@ -432,17 +434,7 @@ if Baseline_delineation_method == 1:
 
     # Sort the GeoDataFrame in descending order based on the Length column
     gdf = gpd.read_file(Contour)
-    gdf = gdf.sort_values('Length', ascending=False)
-
-    if not gdf.empty:
-        max_length_gdf = gdf.iloc[[0]]  # Select the first row (the maximum Length value)
-        # Rest of your code that uses max_length_gdf
-    else:
-        print("The DataFrame 'gdf' is empty.")
-    # max_length_gdf = gdf.iloc[[0]]  # Select the first row (the maximum Length value)
-
-    # Create a new GeoDataFrame with only the selected row
-    max_length_gdf = gpd.GeoDataFrame(max_length_gdf, geometry='geometry', crs=gdf.crs)
+    max_length_gdf = get_max_length_row(gdf)  # Select the first row (the maximum Length value)
     Max_length_contour = os.path.join(Outputspace, 'Max_length_contour.shp')
     max_length_gdf.to_file(Max_length_contour)
 
@@ -593,9 +585,7 @@ else:
 ########################################################################################################################
 # Offset to offshore direction and Make a baseline
 ########################################################################################################################
-
 Offset_line_pre = os.path.join(Outputspace, 'Offset_Line_pre.shp')
-offset_cell = 3  # Default 30 cells
 
 Dist = (offset_cell * ((abs(pixelWidth) + abs(pixelHeight)) / 2))  # 30* average cell size
 if q == 23 or q == 34:
@@ -608,9 +598,9 @@ offset_polyline(Smoothed_polyline, Offset_line, Dist_offset,1)
 print('\tDone offset')
 
 # Sort the GeoDataFrame in descending order based on the Length column
-gdf = gpd.read_file(Offset_line)
-gdf = gdf.sort_values('Length', ascending=False)
-max_length_gdf = gdf.iloc[[0]]  # Select the first row (the maximum Length value)
+
+gdf = MultiLineString2LineString(Offset_line, 10, ((abs(pixelWidth) + abs(pixelHeight)) / 2))  # Convert MultiLineString to LineString
+max_length_gdf = get_max_length_row(gdf)  # Select the first row (the maximum Length value)
 
 # Create a new GeoDataFrame with only the selected row
 max_length_gdf = gpd.GeoDataFrame(max_length_gdf, geometry='geometry', crs=gdf.crs)
