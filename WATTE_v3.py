@@ -50,7 +50,7 @@ assert 0 <= Wave_direction < 360, "\tPlease input the values between 0-360 degre
 
 # Input raster data
 Inputspace = os.path.join(Workspace, "Input_data")
-Raster_file = os.path.join(Inputspace, "Productivity_GB_100.tif")
+Raster_file = os.path.join(Inputspace, "Productivity_ROI.tif")
 
 # Make process folder
 Process_folder = os.path.join(Workspace, 'Process')
@@ -100,7 +100,7 @@ assert 1 <= Baseline_delineation_method <= 3, "\tPlease input the values between
 
 # Switch to True if you want to use inundation file
 Inundation_flag = False
-Inundation_file = os.path.join(Inputspace, "Inundation_depth_TCB.tif")
+Inundation_file = os.path.join(Inputspace, "Inundation_depth_ROI.tif")
 Local_wavefile_flag = False
 Wave_file = os.path.join(Inputspace, "bin16_SL0_R0_timeAvgData.nc") # Local wave file based on Delft3D output but not actual format
 
